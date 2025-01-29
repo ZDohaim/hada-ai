@@ -48,8 +48,8 @@ const GiftGenerator = () => {
     }
   };
 
-  const handleSubmit = () => {
-    console.log({
+  const handleSubmit = async () => {
+    const requestData = {
       category,
       occasion,
       budget,
@@ -57,8 +57,28 @@ const GiftGenerator = () => {
       relationship,
       preferences,
       otherPreference: preferences === "Other" ? otherPreference : null,
-    });
-    // Call your ChatGPT API here with these inputs
+    };
+
+    try {
+      const response = await fetch("http://localhost:5001/generate-gift", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestData),
+      });
+
+      const data = await response.json();
+      if (data.suggestion) {
+        navigate(`/prompt-page`, {
+          state: { giftSuggestion: data.suggestion },
+        });
+      } else {
+        console.error("No suggestion received");
+      }
+    } catch (error) {
+      console.error("Error fetching gift suggestion:", error);
+    }
   };
 
   return (

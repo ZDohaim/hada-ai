@@ -4,7 +4,7 @@ import LandingPage from "./components/LandingPage";
 import GiftGenerator from "./pages/GiftGenerator";
 import Login from "./components/Login";
 import UserInfo from "./pages/UserInfo";
-
+import PromptPage from "./components/PromptPage";
 function App() {
   return (
     <Router>
@@ -13,6 +13,7 @@ function App() {
         <Route path="/create-prompt" element={<GiftGenerator />} />
         <Route path="/login" element={<Login />} />
         <Route path="/UserInfo" element={<UserInfo />} />
+        <Route path="/prompt-page" element={<PromptPage />} />
       </Routes>
     </Router>
   );
