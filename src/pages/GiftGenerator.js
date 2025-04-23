@@ -2,7 +2,8 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Dropdown from "../components/Dropdown";
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";
-import { getFirestore, doc, getDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../firebase"; // Import db from firebase config
 
 const GiftGenerator = () => {
   const [category, setCategory] = useState("");
@@ -17,17 +18,20 @@ const GiftGenerator = () => {
 
   const navigate = useNavigate();
   const auth = getAuth();
-  const db = getFirestore();
 
   // Fetch user details from Firebase
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setUserId(user.uid);
-        const userDocRef = doc(db, "users", user.uid);
-        const userDoc = await getDoc(userDocRef);
-        if (userDoc.exists()) {
-          setFirstName(userDoc.data().firstName || "User");
+        const userDocRef = doc(db, "users", user.uid); // Fixed: Added db reference
+        try {
+          const userDoc = await getDoc(userDocRef);
+          if (userDoc.exists()) {
+            setFirstName(userDoc.data().firstName || "User");
+          }
+        } catch (error) {
+          console.error("Error fetching user data:", error);
         }
       } else {
         setFirstName(""); // Clear name if not logged in
@@ -35,7 +39,7 @@ const GiftGenerator = () => {
     });
 
     return () => unsubscribe();
-  }, [auth, db]);
+  }, [auth]);
 
   const handleSignOut = async () => {
     try {
