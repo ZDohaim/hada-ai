@@ -1,9 +1,14 @@
+// Full updated GiftGenerator.js
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Dropdown from "../components/Dropdown";
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { db } from "../firebase"; // Import db from firebase config
+import { db } from "../firebase";
+import {
+  generateGiftSuggestions,
+  testOpenAIConnection,
+} from "../services/gptService";
 
 const GiftGenerator = () => {
   const [category, setCategory] = useState("");
@@ -14,17 +19,26 @@ const GiftGenerator = () => {
   const [preferences, setPreferences] = useState("");
   const [otherPreference, setOtherPreference] = useState("");
   const [firstName, setFirstName] = useState("");
+  const [gender, setGender] = useState("");
+  const [giftType, setGiftType] = useState("");
+  const [avoid, setAvoid] = useState("");
+  const [effortLevel, setEffortLevel] = useState("");
+  const [extraNotes, setExtraNotes] = useState("");
   const [userId, setUserId] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [giftSuggestions, setGiftSuggestions] = useState(null);
+  const [testingApi, setTestingApi] = useState(false);
+  const [apiTestResult, setApiTestResult] = useState(null);
 
   const navigate = useNavigate();
   const auth = getAuth();
 
-  // Fetch user details from Firebase
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setUserId(user.uid);
-        const userDocRef = doc(db, "users", user.uid); // Fixed: Added db reference
+        const userDocRef = doc(db, "users", user.uid);
         try {
           const userDoc = await getDoc(userDocRef);
           if (userDoc.exists()) {
@@ -34,7 +48,7 @@ const GiftGenerator = () => {
           console.error("Error fetching user data:", error);
         }
       } else {
-        setFirstName(""); // Clear name if not logged in
+        setFirstName("");
       }
     });
 
@@ -53,35 +67,54 @@ const GiftGenerator = () => {
   };
 
   const handleSubmit = async () => {
-    const requestData = {
-      category,
-      occasion,
-      budget,
-      recipientAge,
-      relationship,
-      preferences,
-      otherPreference: preferences === "Other" ? otherPreference : null,
-    };
+    setLoading(true);
+    setError(null);
 
     try {
-      const response = await fetch("http://localhost:5001/generate-gift", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestData),
-      });
+      const gptPreferences = {
+        category,
+        budget,
+        age: recipientAge,
+        gender,
+        relationship,
+        occasion,
+        interests: preferences === "Other" ? otherPreference : preferences,
+        giftType,
+        avoid,
+        effortLevel,
+        extraNotes,
+      };
 
-      const data = await response.json();
-      if (data.suggestion) {
-        navigate(`/prompt-page`, {
-          state: { giftSuggestion: data.suggestion },
-        });
-      } else {
-        console.error("No suggestion received");
-      }
-    } catch (error) {
-      console.error("Error fetching gift suggestion:", error);
+      const suggestions = await generateGiftSuggestions(gptPreferences);
+      setGiftSuggestions(suggestions.gifts);
+      localStorage.setItem(
+        "giftSuggestions",
+        JSON.stringify(suggestions.gifts)
+      );
+    } catch (err) {
+      setError("Failed to generate gift suggestions. Please try again.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTestOpenAI = async () => {
+    setTestingApi(true);
+    setApiTestResult(null);
+    setError(null);
+
+    try {
+      const result = await testOpenAIConnection();
+      setApiTestResult(result);
+      console.log("OpenAI test result:", result);
+    } catch (err) {
+      setError(
+        "Failed to connect to OpenAI API. Please check your server configuration."
+      );
+      console.error(err);
+    } finally {
+      setTestingApi(false);
     }
   };
 
@@ -92,18 +125,16 @@ const GiftGenerator = () => {
     >
       <div
         className="p-8 rounded-lg shadow-lg max-w-xl w-full"
-        style={{
-          backgroundColor: "#FFE0B2",
-          color: "#3E2723",
-        }}
+        style={{ backgroundColor: "#FFE0B2", color: "#3E2723" }}
       >
         <h1
           className="text-3xl font-bold mb-6 text-center cursor-pointer hover:underline"
           style={{ color: "#3E2723" }}
-          onClick={() => navigate(`/UserInfo`)} // Redirect to UserInfo.js
+          onClick={() => navigate(`/UserInfo`)}
         >
           Customize Your Gift {firstName}
         </h1>
+
         <form className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Dropdown
@@ -138,6 +169,7 @@ const GiftGenerator = () => {
               setSelected={setOccasion}
             />
           </div>
+
           <div className="grid grid-cols-2 gap-4">
             <Dropdown
               label="Recipient Age"
@@ -146,7 +178,7 @@ const GiftGenerator = () => {
                 "Teenager (13-19)",
                 "Young Adult (20-30)",
                 "Adult (31-50)",
-                "Senior (50+)",
+                "Senior (50+",
               ]}
               selected={recipientAge}
               setSelected={setRecipientAge}
@@ -165,6 +197,14 @@ const GiftGenerator = () => {
               setSelected={setRelationship}
             />
           </div>
+
+          <Dropdown
+            label="Gender"
+            options={["Male", "Female", "Non-binary", "Prefer not to say"]}
+            selected={gender}
+            setSelected={setGender}
+          />
+
           <Dropdown
             label="Preferences"
             options={[
@@ -182,10 +222,11 @@ const GiftGenerator = () => {
             selected={preferences}
             setSelected={setPreferences}
           />
+
           {preferences === "Other" && (
             <input
               type="text"
-              placeholder="Please specify your preference"
+              placeholder="Please specify preference"
               value={otherPreference}
               onChange={(e) => setOtherPreference(e.target.value)}
               className="w-full p-3 rounded"
@@ -197,6 +238,7 @@ const GiftGenerator = () => {
               }}
             />
           )}
+
           <input
             type="text"
             placeholder="Enter your budget"
@@ -210,9 +252,46 @@ const GiftGenerator = () => {
               fontSize: "16px",
             }}
           />
+
+          <input
+            type="text"
+            placeholder="Things to avoid (optional)"
+            value={avoid}
+            onChange={(e) => setAvoid(e.target.value)}
+            className="w-full p-3 rounded"
+            style={{
+              backgroundColor: "#FFEFD5",
+              color: "#5D4037",
+              border: "1px solid #D7CCC8",
+              fontSize: "16px",
+            }}
+          />
+
+          <Dropdown
+            label="Effort Level"
+            options={["Simple", "Custom & Thoughtful", "Surprise Me"]}
+            selected={effortLevel}
+            setSelected={setEffortLevel}
+          />
+
+          <textarea
+            placeholder="Other notes, details, or anything else you'd like to add"
+            value={extraNotes}
+            onChange={(e) => setExtraNotes(e.target.value)}
+            className="w-full p-3 rounded"
+            rows={3}
+            style={{
+              backgroundColor: "#FFEFD5",
+              color: "#5D4037",
+              border: "1px solid #D7CCC8",
+              fontSize: "16px",
+            }}
+          />
+
           <button
             type="button"
             onClick={handleSubmit}
+            disabled={loading}
             className="w-full py-3 rounded font-medium"
             style={{
               backgroundColor: "#5D4037",
@@ -222,9 +301,94 @@ const GiftGenerator = () => {
             onMouseOver={(e) => (e.target.style.backgroundColor = "#3E2723")}
             onMouseOut={(e) => (e.target.style.backgroundColor = "#5D4037")}
           >
-            Generate Gift
+            {loading ? "Generating..." : "Generate Gift"}
           </button>
         </form>
+
+        {error && (
+          <div
+            className="mt-4 p-3 rounded"
+            style={{
+              backgroundColor: "#FFCDD2",
+              color: "#B71C1C",
+              border: "1px solid #EF9A9A",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {giftSuggestions && (
+          <div className="mt-6 space-y-4">
+            <h3 className="text-xl font-semibold" style={{ color: "#3E2723" }}>
+              Gift Suggestions
+            </h3>
+            {giftSuggestions.map((gift, index) => (
+              <div
+                key={index}
+                className="p-4 rounded"
+                style={{
+                  backgroundColor: "#FFEFD5",
+                  border: "1px solid #D7CCC8",
+                }}
+              >
+                <h4 className="font-bold" style={{ color: "#3E2723" }}>
+                  {gift.name}
+                </h4>
+                <p className="font-medium" style={{ color: "#5D4037" }}>
+                  {gift.price}
+                </p>
+                <p className="mt-2" style={{ color: "#8D6E63" }}>
+                  {gift.description}
+                </p>
+                <p className="mt-2" style={{ color: "#A1887F" }}>
+                  {gift.reasoning}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-4 text-center">
+          <button
+            onClick={handleTestOpenAI}
+            disabled={testingApi}
+            className="px-4 py-2 text-sm rounded"
+            style={{
+              backgroundColor: "#8D6E63",
+              color: "#FFF3E0",
+            }}
+          >
+            {testingApi ? "Testing..." : "Test OpenAI Connection"}
+          </button>
+
+          {apiTestResult && (
+            <div
+              className="mt-2 p-3 rounded"
+              style={{
+                backgroundColor: apiTestResult.success ? "#C8E6C9" : "#FFCDD2",
+                color: apiTestResult.success ? "#2E7D32" : "#B71C1C",
+                border: apiTestResult.success
+                  ? "1px solid #A5D6A7"
+                  : "1px solid #EF9A9A",
+              }}
+            >
+              {apiTestResult.message}
+              {apiTestResult.openaiResponse && (
+                <pre
+                  className="mt-2 p-2 rounded text-xs overflow-auto"
+                  style={{
+                    backgroundColor: "rgba(0,0,0,0.05)",
+                    maxHeight: "100px",
+                  }}
+                >
+                  {JSON.stringify(apiTestResult.openaiResponse, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+
         <p className="text-center mt-4">
           {userId ? (
             <button
