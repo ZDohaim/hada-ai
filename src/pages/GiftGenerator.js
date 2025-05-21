@@ -165,29 +165,51 @@ const GiftGenerator = () => {
   const renderProductCard = (product) => {
     if (!product) return null;
 
-    // Debug the product structure
-    console.log("Rendering product:", product);
-
-    // Make sure all product fields are properly handled as potential objects
+    // Extract product name properly
     const productName =
-      typeof product.name === "object"
-        ? JSON.stringify(product.name)
-        : product.name || "Product";
+      typeof product.name === "string"
+        ? product.name
+        : product.en_name || "Product";
 
-    const price =
-      typeof product.price === "object"
-        ? product.price.price_formated ||
-          product.price.original_price ||
-          JSON.stringify(product.price)
-        : product.price || "Price unavailable";
+    // Extract price values and format them with currency on the right
+    let price = "Price unavailable";
+    let originalPrice = null;
 
-    const special = product.special
-      ? typeof product.special === "object"
-        ? product.special.price_formated ||
-          product.special.original_price ||
-          JSON.stringify(product.special)
-        : product.special
-      : null;
+    if (product.special && product.special.length > 0) {
+      // Get numeric values from special pricing
+      const specialPrice =
+        product.special[0].priceWithoutCurrency ||
+        (typeof product.special[0].price_formated === "string"
+          ? product.special[0].price_formated.replace(/[^0-9.]/g, "")
+          : null);
+
+      const origPrice =
+        product.special[0].originalPriceWithoutCurrency ||
+        (typeof product.special[0].original_price === "string"
+          ? product.special[0].original_price.replace(/[^0-9.]/g, "")
+          : null);
+
+      // Format with currency on the right
+      if (specialPrice) price = `${specialPrice} SAR`;
+      if (origPrice) originalPrice = `${origPrice} SAR`;
+    } else if (
+      typeof product.price === "object" &&
+      product.price.priceWithoutCurrency
+    ) {
+      price = `${product.price.priceWithoutCurrency} SAR`;
+    } else if (typeof product.price === "string") {
+      // Try to extract numeric value if it's a string with formatting
+      const numericPrice = product.price.replace(/[^0-9.]/g, "");
+      if (numericPrice) price = `${numericPrice} SAR`;
+    } else if (typeof product.price === "number") {
+      price = `${product.price} SAR`;
+    }
+
+    // Extract image URL - use direct URL if available, otherwise construct from thumb
+    const imageUrl = product.image || product.thumb || null;
+
+    // Debug image URL
+    console.log("Product image URL:", imageUrl);
 
     return (
       <div
@@ -196,24 +218,67 @@ const GiftGenerator = () => {
           backgroundColor: "white",
           border: "1px solid #E0E0E0",
           boxShadow: "0 2px 4px rgba(0,0,0,0.05)",
-          transition: "transform 0.2s",
+          transition: "transform 0.2s, box-shadow 0.2s",
           cursor: "pointer",
+          height: "100%",
         }}
-        onClick={() =>
-          window.open(
-            product.url ||
-              `https://niceonesa.com/product/${product.product_id}`,
-            "_blank"
-          )
-        }
+        onClick={() => {
+          // Use seo_url_en for direct product links
+          let productUrl = null;
+
+          // Try to construct a valid URL from available data
+          if (product.seo_url_en) {
+            productUrl = `https://niceonesa.com/en/${product.seo_url_en}`;
+          } else if (product.share_url) {
+            // Add "/en/" to the share_url if it's not already there
+            const url = new URL(product.share_url);
+            if (!url.pathname.includes("/en/")) {
+              productUrl = product.share_url.replace(
+                "niceonesa.com/",
+                "niceonesa.com/en/"
+              );
+            } else {
+              productUrl = product.share_url;
+            }
+          } else if (product.product_id || product.id) {
+            // Use product category if available
+            const category =
+              product.category_hierarchy &&
+              product.category_hierarchy.length > 0
+                ? product.category_hierarchy[0].name || "product"
+                : "product";
+
+            productUrl = `https://niceonesa.com/en/${category.toLowerCase()}/${
+              product.product_id || product.id
+            }`;
+          }
+
+          console.log("Opening product URL:", productUrl);
+          window.open(productUrl, "_blank");
+        }}
+        onMouseOver={(e) => {
+          e.currentTarget.style.transform = "translateY(-5px)";
+          e.currentTarget.style.boxShadow = "0 8px 16px rgba(0,0,0,0.1)";
+        }}
+        onMouseOut={(e) => {
+          e.currentTarget.style.transform = "translateY(0)";
+          e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.05)";
+        }}
       >
-        <div className="flex flex-col items-center">
+        <div className="flex flex-col items-center h-full">
           <div className="product-image w-full h-48 flex items-center justify-center mb-3">
-            {product.image ? (
+            {imageUrl ? (
               <img
-                src={product.image}
+                src={imageUrl}
                 alt={productName}
                 className="max-h-full max-w-full object-contain"
+                loading="lazy"
+                onError={(e) => {
+                  console.error("Image failed to load:", imageUrl);
+                  e.target.onerror = null;
+                  e.target.src =
+                    "https://via.placeholder.com/150?text=No+Image";
+                }}
               />
             ) : (
               <div className="bg-gray-200 w-full h-full flex items-center justify-center text-gray-500">
@@ -222,21 +287,21 @@ const GiftGenerator = () => {
             )}
           </div>
           <h4
-            className="font-medium text-center mb-2"
+            className="font-medium text-center mb-2 flex-grow"
             style={{ color: "#3E2723" }}
           >
             {productName}
           </h4>
-          <div className="flex justify-between w-full items-center">
+          <div className="flex justify-between w-full items-center mt-auto">
             <span className="font-bold" style={{ color: "#D84315" }}>
               {price}
             </span>
-            {special && (
+            {originalPrice && (
               <span
                 className="text-sm line-through"
                 style={{ color: "#9E9E9E" }}
               >
-                {special}
+                {originalPrice}
               </span>
             )}
           </div>
@@ -550,10 +615,10 @@ const GiftGenerator = () => {
                   More Gift Ideas
                 </h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {giftSuggestions.flatMap((gift) =>
+                  {giftSuggestions.flatMap((gift, giftIndex) =>
                     (gift.alternatives || []).map((alt, altIndex) => (
                       <div
-                        key={`alt-${gift.name}-${altIndex}`}
+                        key={`alt-${giftIndex}-${altIndex}`}
                         className="mb-4"
                       >
                         {renderProductCard(alt)}
