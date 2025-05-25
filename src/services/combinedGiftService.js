@@ -19,37 +19,25 @@ const formatSearchQuery = (query) => {
 };
 
 /**
- * Get gift suggestions from GPT and enrich them with product data from NiceOne API
+ * Get gift suggestions from GPT and enrich them with product data from appropriate APIs
  * @param {Object} preferences - User preferences for gift suggestions
  * @returns {Promise<Array>} - Array of gift suggestions with product data
  */
 export const getEnrichedGiftSuggestions = async (preferences) => {
   try {
-    const gptResponse = await generateGiftSuggestions(preferences);
+    // The backend now handles both GPT generation AND enrichment with the correct APIs
+    // So we just need to call generateGiftSuggestions with enrichWithProducts: true
+    const enrichedPreferences = {
+      ...preferences,
+      enrichWithProducts: true,
+    };
+
+    const gptResponse = await generateGiftSuggestions(enrichedPreferences);
     const giftSuggestions = gptResponse.gifts || [];
 
-    console.log("GPT gift suggestions:", giftSuggestions);
+    console.log("Enriched gift suggestions from backend:", giftSuggestions);
 
-    await initializeApi();
-
-    const enrichedGifts = await Promise.all(
-      giftSuggestions.map(async (gift) => {
-        try {
-          // now searchProducts will send ?q=Perfume&search=floral
-          const { products } = await searchProducts(
-            gift.category,
-            gift.modifier ? { search: gift.modifier } : {}
-          );
-          const top = products[0] || null;
-          const alts = products.slice(1, 4);
-          return { ...gift, product: top, alternatives: alts };
-        } catch (error) {
-          console.error(`Failed to enrich gift "${gift.category}":`, error);
-          return { ...gift, product: null, alternatives: [] };
-        }
-      })
-    );
-    return { gifts: enrichedGifts, enriched: true };
+    return { gifts: giftSuggestions, enriched: true };
   } catch (error) {
     console.error("Error in getEnrichedGiftSuggestions:", error);
     throw new Error(

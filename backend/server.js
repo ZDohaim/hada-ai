@@ -35,6 +35,26 @@ niceoneApi.interceptors.response.use(
   }
 );
 
+const jarirApi = axios.create({
+  baseURL: "https://mecs.klevu.com/cloud-search/n-search/search",
+  timeout: 30000, // Increased to 30 seconds
+});
+
+jarirApi.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error("Jarir API Error:", {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      url: error.config?.url,
+      params: error.config?.params,
+      message: error.message,
+    });
+    return Promise.reject(error);
+  }
+);
+
 const getNiceOneHeaders = () => ({
   accept: "*/*",
   "accept-language": "en,en-US;q=0.9,ar;q=0.8",
@@ -63,6 +83,23 @@ const getNiceOneHeaders = () => ({
   cookie: `PHPSESSID=${process.env.NICEONE_SESSION}; language=en-gb; currency=SAR`,
 });
 
+const getJarirHeaders = () => ({
+  accept: "*/*",
+  "accept-language": "en-US,en;q=0.9",
+  origin: "https://www.jarir.com",
+  priority: "u=1, i",
+  referer: "https://www.jarir.com/",
+  "sec-ch-ua":
+    '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"macOS"',
+  "sec-fetch-dest": "empty",
+  "sec-fetch-mode": "cors",
+  "sec-fetch-site": "cross-site",
+  "user-agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+});
+
 const pruneEmpty = (obj) => {
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -78,6 +115,82 @@ const extractProducts = (res) => {
     res.data.data?.components?.flatMap((c) => c.products || []) ||
     []
   );
+};
+
+const searchJarir = async (query, retries = 2) => {
+  const params = {
+    autoComplete: true,
+    typeOfSuggestions: "cms|category",
+    noOfResults: 12,
+    noOfResultsAC: 5,
+    enablePartialSearch: false,
+    sortOrder: "rel",
+    showOutOfStockProducts: true,
+    paginationStartsFrom: 0,
+    visibility: "search",
+    resultForZero: 0,
+    enableFilters: true,
+    fetchMinMaxPrice: true,
+    noOfResultsZero: 5,
+    klevu_multiSelectFilters: true,
+    responseType: "json",
+    ticket: "klevu-16370647733274933",
+    sv: "2.3.18",
+    term: query,
+    klevu_filterLimit: 50,
+  };
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      console.log(`→ Jarir API attempt ${attempt + 1} for: "${query}"`);
+
+      const res = await jarirApi.get("", {
+        params,
+        headers: getJarirHeaders(),
+      });
+
+      console.log(`📊 Jarir API response structure:`, {
+        status: res.status,
+        dataKeys: Object.keys(res.data || {}),
+        resultKeys: res.data.result
+          ? Object.keys(res.data.result)
+          : "no result key",
+        fullResponse: JSON.stringify(res.data).substring(0, 500) + "...",
+      });
+
+      // The result is an array, not an object with records
+      const results = res.data.result || [];
+
+      console.log(
+        `✓ Jarir API success: ${results.length} results for "${query}"`
+      );
+
+      return results.map((item) => ({
+        title: item.name || item.itemName || "Unknown Product",
+        price: item.price || item.salePrice || null,
+        image: item.image || item.imageUrl || null,
+        link: item.url || item.productUrl || null,
+        brand: item.brand || item.brandName || null,
+        id: item.id || item.itemId || null,
+        sku: item.sku || null,
+      }));
+    } catch (err) {
+      console.error(
+        `✗ Jarir API attempt ${attempt + 1} failed for "${query}":`,
+        err.message
+      );
+
+      if (attempt === retries) {
+        console.error(`✗ All Jarir API attempts failed for "${query}"`);
+        return [];
+      }
+
+      // Wait before retry (exponential backoff)
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+    }
+  }
+
+  return [];
 };
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
@@ -178,50 +291,212 @@ app.get("/api/niceone/check-connection", async (req, res) => {
   }
 });
 
+app.get("/api/jarir/search", async (req, res) => {
+  try {
+    const { q, limit } = req.query;
+    if (!q) return res.status(400).json({ error: "q required" });
+
+    console.log("→ Jarir search for:", q);
+    const products = await searchJarir(q);
+    const limitedProducts = limit
+      ? products.slice(0, parseInt(limit))
+      : products;
+
+    return res.json({ products: limitedProducts });
+  } catch (err) {
+    console.error("Jarir search error:", err.message);
+    return res
+      .status(500)
+      .json({ error: "Jarir search failed", details: err.message });
+  }
+});
+
+app.get("/api/jarir/test", async (req, res) => {
+  try {
+    const products = await searchJarir("laptop");
+    res.json({ success: true, sampleCount: products.length });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get("/api/test-openai", async (req, res) => {
+  try {
+    if (!openai) {
+      return res.status(500).json({
+        success: false,
+        message:
+          "OpenAI API not initialized. Check your API key configuration.",
+      });
+    }
+
+    // Simple test to check if OpenAI API is working
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [{ role: "user", content: "Say 'OpenAI test successful'" }],
+    });
+
+    return res.json({
+      success: true,
+      message: "OpenAI API is working correctly",
+      sample: response.choices[0].message.content,
+    });
+  } catch (err) {
+    console.error("OpenAI connection test failed:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to connect to OpenAI API",
+      error: err.message,
+    });
+  }
+});
+
 app.post("/api/generate-gift", async (req, res) => {
   try {
     if (!openai) throw new Error("OpenAI not initialized");
     const prefs = req.body;
+
+    // Log the received preferences
+    console.log("Received preferences:", prefs);
+
+    let userPrompt =
+      "Please list premium gift suggestions based on the following preferences:";
+
+    if (prefs.age) userPrompt += `\n- Recipient’s age: ${prefs.age}`;
+    if (prefs.gender) userPrompt += `\n- Gender: ${prefs.gender}`;
+    if (prefs.relationship)
+      userPrompt += `\n- Relationship to recipient: ${prefs.relationship}`;
+    if (prefs.category)
+      userPrompt += `\n- Preferred category: ${prefs.category}`;
+    if (prefs.budget) userPrompt += `\n- Desired budget range: ${prefs.budget}`;
+    if (prefs.interests)
+      userPrompt += `\n- Personal interests, preferences, or style notes: ${prefs.interests}`;
+
+    if (prefs.description)
+      userPrompt += `\n\nAdditional context or special occasion: ${prefs.description}`;
+
+    userPrompt +=
+      "\n\nAll suggestions should reflect refined taste and cultural relevance for a Saudi Arabian audience. Stick to the specified categories only, and include elegant, thoughtful modifiers when appropriate.";
+
     const sys = {
       role: "system",
-      content: `\nYou suggest gift ideas by choosing from these fixed categories:\nMakeup, Perfume, Care, Health & Nutrition, Devices, Premium, Nails, Gifts, Lenses, Home Scents.\nFor each, you may optionally supply a 1–4‑word "modifier" (e.g. "matte lipstick").\nReturn JSON: { "gifts":[ { "category":"Perfume","modifier":"floral eau de parfum" }, … ] }\n`,
+      content: `
+      You are Hadai.ai, an elite gift assistant specializing in luxury and culturally relevant gifts for users in Saudi Arabia.
+      
+      Your task is to generate tasteful, upper-class gift recommendations using only the following fixed categories:
+      Makeup, Perfume, Care, Health & Nutrition, Devices, Premium, Nails, Gifts, Lenses, Home Scents.
+      
+      For each gift, determine the appropriate store:
+      - JARIR: for technology, books, devices, electronics, gadgets
+      - NICEONE: for makeup, perfume, skincare, beauty, care products
+      
+      Each item must include:
+      - "category" (one of the above)
+      - "store" (either "JARIR" or "NICEONE")
+      - Optional "modifier" (1–4 elegant words like "oud-infused perfume" or "gaming headset").
+      
+      Return in this exact JSON format:
+      {
+        "gifts": [
+          { "category": "Perfume", "store": "NICEONE", "modifier": "luxury oud blend" },
+          { "category": "Devices", "store": "JARIR", "modifier": "gaming headset" }
+        ]
+      }
+      
+      Ensure all gifts align with high-end expectations and Saudi cultural preferences.
+      `,
     };
-    const usr = { role: "user", content: JSON.stringify(prefs) };
+
+    const usr = {
+      role: "user",
+      content: userPrompt,
+    };
+
+    console.log("Sending to OpenAI:", {
+      system: sys.content,
+      user: userPrompt,
+    });
+
     const chat = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4o-mini",
       messages: [sys, usr],
     });
-    const { gifts } = JSON.parse(chat.choices[0].message.content);
+
+    const responseContent = chat.choices[0].message.content;
+    console.log("OpenAI response:", responseContent);
+
+    // Parse the JSON response
+    let gifts;
+    try {
+      const jsonResponse = JSON.parse(responseContent);
+      gifts = jsonResponse.gifts || [];
+    } catch (parseErr) {
+      console.error("Error parsing OpenAI response:", parseErr);
+      console.log("Attempting to extract JSON from response");
+
+      // Fallback: Try to extract JSON from the response text
+      const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const jsonResponse = JSON.parse(jsonMatch[0]);
+          gifts = jsonResponse.gifts || [];
+        } catch (extractErr) {
+          console.error("Error extracting JSON:", extractErr);
+          throw new Error(
+            "Could not parse gift suggestions from OpenAI response"
+          );
+        }
+      } else {
+        throw new Error("Could not extract JSON from OpenAI response");
+      }
+    }
 
     if (!prefs.enrichWithProducts) return res.json({ gifts });
 
     const enriched = await Promise.all(
       gifts.map(async (g) => {
+        const store = g.store ? g.store.toLowerCase() : "unknown";
+        const query = g.modifier || g.category;
+
         try {
-          const params = {
-            route: "rest/product_admin/products",
-            seo_url: g.category,
-            ...(g.modifier ? { search: g.modifier } : {}),
-            sort: "most_popular",
-            page: 1,
-            limit: 10,
-            first: false,
-          };
+          if (store === "niceone") {
+            const params = {
+              route: "rest/product_admin/products",
+              search: query,
+              sort: "most_popular",
+              page: 1,
+              limit: 10,
+              first: false,
+            };
 
-          const response = await niceoneApi.get("/", {
-            params: pruneEmpty(params),
-            headers: getNiceOneHeaders(),
-          });
+            const response = await niceoneApi.get("/", {
+              params: pruneEmpty(params),
+              headers: getNiceOneHeaders(),
+            });
 
-          const products = extractProducts(response);
-
-          return {
-            ...g,
-            product: products[0] || null,
-            alternatives: products.slice(1, 4),
-          };
+            const products = extractProducts(response);
+            return {
+              ...g,
+              product: products[0] || null,
+              alternatives: products.slice(1, 4),
+              source: "niceone",
+            };
+          } else if (store === "jarir") {
+            const products = await searchJarir(query);
+            return {
+              ...g,
+              product: products[0] || null,
+              alternatives: products.slice(1, 4),
+              source: "jarir",
+            };
+          } else {
+            return { ...g, product: null, unknownStore: true };
+          }
         } catch (err) {
-          console.error(`Error enriching gift ${g.category}:`, err.message);
+          console.error(
+            `Error enriching gift (${store}) ${query}:`,
+            err.message
+          );
           return {
             ...g,
             product: null,

@@ -62,3 +62,19 @@ export const initializeApi = async () => {
   const result = await testNiceOneConnection();
   if (!result.success) throw new Error(result.error || "NiceOne test failed");
 };
+
+export const searchJarirProducts = async (q, options = {}) => {
+  const params = pruneEmpty({
+    q,
+    limit: options.limit || 30,
+  });
+
+  console.log("\u2192 Proxying to /jarir/search with:", params);
+  const resp = await niceoneApi.get("/jarir/search", { params });
+  return { products: resp.data.products || [] };
+};
+
+export const testJarirConnection = async () => {
+  const resp = await niceoneApi.get("/jarir/test");
+  return resp.data;
+};

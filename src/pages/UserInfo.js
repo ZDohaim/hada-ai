@@ -1,282 +1,265 @@
 import React, { useState, useEffect } from "react";
 import { format } from "date-fns";
-import Calendar from "../components/Calendar";
 import { useContacts } from "../hooks/useContacts";
-import { checkForUpcomingDates, handleReminder } from "../utils/reminderUtils";
-import { Link } from "react-router-dom";
+import { checkForUpcomingDates } from "../utils/reminderUtils";
+import { Link, useNavigate } from "react-router-dom";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../firebase";
 
 const UserInfo = () => {
-  const { contacts, loading, error, addContact, updateContact, deleteContact } =
-    useContacts();
-  const [editingContact, setEditingContact] = useState(null);
-  const [showCalendar, setShowCalendar] = useState(false);
-  const [showGiftGenerator, setShowGiftGenerator] = useState(false);
-  const [currentPerson, setCurrentPerson] = useState({
-    name: "",
-    relation: "",
-    dates: [{ label: "Birthday", date: "" }],
-    notes: "",
-  });
+  const { contacts, loading } = useContacts();
+  const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null);
+  const [upcomingReminders, setUpcomingReminders] = useState([]);
+  const navigate = useNavigate();
 
-  // Check for reminders every hour
+  // Get current user and their data
   useEffect(() => {
-    const checkReminders = () => {
+    const auth = getAuth();
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        try {
+          const userDocRef = doc(db, "users", currentUser.uid);
+          const userDoc = await getDoc(userDocRef);
+          if (userDoc.exists()) {
+            setUserData(userDoc.data());
+          }
+        } catch (error) {
+          console.error("Error fetching user data:", error);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Check for upcoming reminders
+  useEffect(() => {
+    if (contacts.length > 0) {
       const reminders = checkForUpcomingDates(contacts);
-      reminders.forEach(handleReminder);
-    };
-
-    checkReminders(); // Initial check
-    const interval = setInterval(checkReminders, 3600000); // Check every hour
-
-    return () => clearInterval(interval);
+      setUpcomingReminders(reminders.slice(0, 3)); // Show only first 3
+    }
   }, [contacts]);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setCurrentPerson((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleDateChange = (index, field, value) => {
-    const updatedDates = currentPerson.dates.map((d, i) =>
-      i === index ? { ...d, [field]: value } : d
-    );
-    setCurrentPerson((prev) => ({ ...prev, dates: updatedDates }));
-  };
-
-  const addDateField = () => {
-    setCurrentPerson((prev) => ({
-      ...prev,
-      dates: [...prev.dates, { label: "", date: "" }],
-    }));
-  };
-
-  const removeDateField = (index) => {
-    setCurrentPerson((prev) => ({
-      ...prev,
-      dates: prev.dates.filter((_, i) => i !== index),
-    }));
-  };
-
-  const savePerson = async () => {
-    try {
-      if (!currentPerson.name || !currentPerson.relation) {
-        alert("Name and Relation are required!");
-        return;
-      }
-
-      if (editingContact) {
-        await updateContact(editingContact.id, currentPerson);
-      } else {
-        const newContactId = await addContact(currentPerson);
-        console.log("New contact added with ID:", newContactId);
-      }
-
-      setCurrentPerson({
-        name: "",
-        relation: "",
-        dates: [{ label: "Birthday", date: "" }],
-        notes: "",
-      });
-      setEditingContact(null);
-    } catch (err) {
-      console.error("Error details:", err);
-      alert("Error saving contact: " + err.message);
+  const getUserName = () => {
+    if (userData?.firstName) {
+      return userData.firstName;
     }
+    if (user?.displayName) {
+      return user.displayName.split(" ")[0];
+    }
+    return "there";
   };
 
-  const startEditing = (person) => {
-    setEditingContact(person);
-    setCurrentPerson({
-      ...person,
-      dates: person.dates || [{ label: "Birthday", date: "" }],
-    });
+  const handleManageContacts = () => {
+    navigate("/manage-contacts");
   };
 
-  const cancelEditing = () => {
-    setEditingContact(null);
-    setCurrentPerson({
-      name: "",
-      relation: "",
-      dates: [{ label: "Birthday", date: "" }],
-      notes: "",
-    });
-  };
-
-  if (loading) return <div>Loading...</div>;
-  if (error) return <div>Error: {error}</div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#FFF8E1] via-[#FFF3E0] to-[#FFECB3] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-[#D7CCC8] border-t-[#8D6E63] rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-[#5D4037] text-lg">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-[#FFF3E0] p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <div className="flex gap-4">
-            <Link
-              to="/gift-generator"
-              className="px-4 py-2 bg-[#5D4037] text-white rounded hover:bg-[#3E2723]"
-            >
-              Gift Ideas
-            </Link>
+    <div className="min-h-screen bg-gradient-to-br from-[#FFF8E1] via-[#FFF3E0] to-[#FFECB3]">
+      {/* Header */}
+      <div className="pt-16 pb-8 px-8">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-4">
+            <h1 className="text-5xl font-light text-[#3E2723] mb-3">
+              Welcome back, <span className="font-medium">{getUserName()}</span>
+            </h1>
+            <p className="text-xl text-[#6D4C41] font-light">
+              Ready to find the perfect gift or manage your connections?
+            </p>
           </div>
-          <h1 className="text-3xl font-bold text-[#3E2723]">
-            Manage Your Contacts
-          </h1>
-          <button
-            onClick={() => setShowCalendar(!showCalendar)}
-            className="px-4 py-2 bg-[#5D4037] text-white rounded hover:bg-[#3E2723]"
-          >
-            {showCalendar ? "Show Contacts" : "Show Calendar"}
-          </button>
         </div>
+      </div>
 
-        {showCalendar ? (
-          <Calendar contacts={contacts} />
-        ) : (
-          <>
-            {/* Input Form */}
-            <div className="bg-[#FFE0B2] rounded-lg shadow-lg p-6 mb-8">
-              <div className="space-y-4">
-                <input
-                  type="text"
-                  name="name"
-                  value={currentPerson.name}
-                  onChange={handleInputChange}
-                  placeholder="Name"
-                  className="w-full p-3 rounded border border-[#D7CCC8] bg-[#FFEFD5] text-[#5D4037]"
-                />
-                <input
-                  type="text"
-                  name="relation"
-                  value={currentPerson.relation}
-                  onChange={handleInputChange}
-                  placeholder="Relation"
-                  className="w-full p-3 rounded border border-[#D7CCC8] bg-[#FFEFD5] text-[#5D4037]"
-                />
-
-                {/* Date Inputs */}
-                {currentPerson.dates.map((dateEntry, index) => (
-                  <div key={index} className="flex items-center gap-4">
-                    <input
-                      type="text"
-                      value={dateEntry.label}
-                      onChange={(e) =>
-                        handleDateChange(index, "label", e.target.value)
-                      }
-                      placeholder="Label (e.g., Birthday)"
-                      className="flex-1 p-3 rounded border border-[#D7CCC8] bg-[#FFEFD5] text-[#5D4037]"
-                    />
-                    <input
-                      type="date"
-                      value={dateEntry.date}
-                      onChange={(e) =>
-                        handleDateChange(index, "date", e.target.value)
-                      }
-                      className="p-3 rounded border border-[#D7CCC8] bg-[#FFEFD5] text-[#5D4037]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeDateField(index)}
-                      className="px-3 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={addDateField}
-                  className="w-full py-2 rounded bg-[#5D4037] text-white hover:bg-[#3E2723]"
+      {/* Main Action Buttons */}
+      <div className="px-8 mb-16">
+        <div className="max-w-4xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-8">
+            {/* Generate Gift Ideas Button */}
+            <Link
+              to="/gift-flow"
+              className="group relative overflow-hidden bg-gradient-to-br from-[#8D6E63] via-[#6D4C41] to-[#5D4037] 
+                         rounded-3xl p-8 shadow-2xl hover:shadow-3xl transform hover:-translate-y-2 
+                         transition-all duration-500 ease-out"
+            >
+              <div
+                className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-0 
+                              group-hover:opacity-100 transition-opacity duration-500"
+              ></div>
+              <div className="relative z-10 text-center">
+                <div className="text-6xl mb-6 transform group-hover:scale-110 transition-transform duration-500">
+                  🎁
+                </div>
+                <h2 className="text-3xl font-light text-white mb-4">
+                  Generate Gift Ideas
+                </h2>
+                <p className="text-[#FFCC80] text-lg font-light leading-relaxed">
+                  Let our AI help you discover the perfect gift for any
+                  occasion. Personalized suggestions based on your preferences.
+                </p>
+                <div
+                  className="mt-6 inline-flex items-center text-white/80 group-hover:text-white 
+                                transition-colors duration-300"
                 >
-                  Add Date
-                </button>
-
-                {/* Notes */}
-                <textarea
-                  name="notes"
-                  value={currentPerson.notes}
-                  onChange={handleInputChange}
-                  placeholder="Optional Notes"
-                  className="w-full p-3 rounded border border-[#D7CCC8] bg-[#FFEFD5] text-[#5D4037]"
-                />
-
-                <div className="flex gap-4">
-                  <button
-                    type="button"
-                    onClick={savePerson}
-                    className="flex-1 py-3 rounded bg-mediumBrown text-white hover:bg-darkBrown"
+                  <span className="mr-2">Start discovering</span>
+                  <svg
+                    className="w-5 h-5 transform group-hover:translate-x-1 transition-transform duration-300"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
                   >
-                    {editingContact ? "Update Contact" : "Save Contact"}
-                  </button>
-                  {editingContact && (
-                    <button
-                      type="button"
-                      onClick={cancelEditing}
-                      className="flex-1 py-3 rounded bg-gray-500 text-white hover:bg-gray-600"
-                    >
-                      Cancel
-                    </button>
-                  )}
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
                 </div>
               </div>
-            </div>
+            </Link>
 
-            {/* List of Saved People */}
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold text-[#3E2723]">
-                Saved Contacts
-              </h2>
-              {contacts.length === 0 ? (
-                <p className="text-[#5D4037]">No contacts saved yet.</p>
-              ) : (
-                <ul className="space-y-4">
-                  {contacts.map((person) => (
-                    <li
-                      key={person.id}
-                      className="p-4 border border-[#D7CCC8] bg-[#FFEFD5] rounded-lg"
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="text-lg font-bold text-[#3E2723]">
-                            {person.name}
-                          </p>
-                          <p className="text-[#5D4037]">{person.relation}</p>
-                          <ul className="mt-2">
-                            {person.dates.map((d, i) => (
-                              <li key={i} className="text-[#5D4037]">
-                                {d.label}:{" "}
-                                {d.date
-                                  ? format(new Date(d.date), "MMM dd, yyyy")
-                                  : "N/A"}
-                              </li>
-                            ))}
-                          </ul>
-                          {person.notes && (
-                            <p className="mt-2 text-[#5D4037]">
-                              {person.notes}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            className="px-3 py-2 bg-[#5D4037] text-white rounded hover:bg-[#3E2723]"
-                            onClick={() => startEditing(person)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="px-3 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-                            onClick={() => deleteContact(person.id)}
-                          >
-                            Remove
-                          </button>
-                        </div>
+            {/* Manage Contacts Button */}
+            <button
+              onClick={handleManageContacts}
+              className="group relative overflow-hidden bg-gradient-to-br from-[#A1887F] via-[#8D6E63] to-[#6D4C41] 
+                         rounded-3xl p-8 shadow-2xl hover:shadow-3xl transform hover:-translate-y-2 
+                         transition-all duration-500 ease-out text-left w-full"
+            >
+              <div
+                className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-0 
+                              group-hover:opacity-100 transition-opacity duration-500"
+              ></div>
+              <div className="relative z-10 text-center">
+                <div className="text-6xl mb-6 transform group-hover:scale-110 transition-transform duration-500">
+                  📇
+                </div>
+                <h2 className="text-3xl font-light text-white mb-4">
+                  Manage Contacts
+                </h2>
+                <p className="text-[#FFCC80] text-lg font-light leading-relaxed">
+                  Keep track of important dates, preferences, and gift history
+                  for all your loved ones in one place.
+                </p>
+                <div
+                  className="mt-6 inline-flex items-center text-white/80 group-hover:text-white 
+                                transition-colors duration-300"
+                >
+                  <span className="mr-2">Organize contacts</span>
+                  <svg
+                    className="w-5 h-5 transform group-hover:translate-x-1 transition-transform duration-300"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Upcoming Reminders Section */}
+      {upcomingReminders.length > 0 && (
+        <div className="px-8 pb-16">
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-white/60 backdrop-blur-sm rounded-2xl p-8 shadow-xl border border-white/20">
+              <h3 className="text-2xl font-light text-[#3E2723] mb-6 text-center">
+                Upcoming Occasions
+              </h3>
+              <div className="grid gap-4">
+                {upcomingReminders.map((reminder, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-4 bg-white/80 rounded-xl 
+                               shadow-sm border border-[#E8D5C4]/30 hover:shadow-md transition-shadow duration-300"
+                  >
+                    <div className="flex items-center space-x-4">
+                      <div
+                        className="w-12 h-12 bg-gradient-to-br from-[#FFCC80] to-[#FFB74D] 
+                                      rounded-full flex items-center justify-center text-xl"
+                      >
+                        🎉
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                      <div>
+                        <p className="font-medium text-[#3E2723]">
+                          {reminder.contactName}
+                        </p>
+                        <p className="text-[#6D4C41] text-sm">
+                          {reminder.occasion}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[#5D4037] font-medium">
+                        {format(new Date(reminder.date), "MMM dd")}
+                      </p>
+                      <p className="text-[#8D6E63] text-sm">
+                        {reminder.daysUntil === 0
+                          ? "Today"
+                          : reminder.daysUntil === 1
+                          ? "Tomorrow"
+                          : `${reminder.daysUntil} days`}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-6 text-center">
+                <button
+                  onClick={handleManageContacts}
+                  className="text-[#6D4C41] hover:text-[#5D4037] font-medium transition-colors duration-300"
+                >
+                  View all contacts →
+                </button>
+              </div>
             </div>
-          </>
-        )}
+          </div>
+        </div>
+      )}
+
+      {/* Quick Stats */}
+      <div className="px-8 pb-16">
+        <div className="max-w-4xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white/40 backdrop-blur-sm rounded-xl p-6 text-center border border-white/20">
+              <div className="text-3xl font-light text-[#5D4037] mb-2">
+                {contacts.length}
+              </div>
+              <p className="text-[#6D4C41] font-light">Saved Contacts</p>
+            </div>
+            <div className="bg-white/40 backdrop-blur-sm rounded-xl p-6 text-center border border-white/20">
+              <div className="text-3xl font-light text-[#5D4037] mb-2">
+                {upcomingReminders.length}
+              </div>
+              <p className="text-[#6D4C41] font-light">Upcoming Events</p>
+            </div>
+            <div className="bg-white/40 backdrop-blur-sm rounded-xl p-6 text-center border border-white/20">
+              <div className="text-3xl font-light text-[#5D4037] mb-2">✨</div>
+              <p className="text-[#6D4C41] font-light">AI-Powered</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
