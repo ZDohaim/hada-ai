@@ -1,7 +1,8 @@
 // Updated niceoneService.js
 import axios from "axios";
 
-const BACKEND_API_URL = "http://localhost:5001/api";
+const BACKEND_API_URL =
+  process.env.REACT_APP_API_URL || "http://localhost:5001";
 const niceoneApi = axios.create({
   baseURL: BACKEND_API_URL,
   headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -61,20 +62,4 @@ export const testNiceOneConnection = async () => {
 export const initializeApi = async () => {
   const result = await testNiceOneConnection();
   if (!result.success) throw new Error(result.error || "NiceOne test failed");
-};
-
-export const searchJarirProducts = async (q, options = {}) => {
-  const params = pruneEmpty({
-    q,
-    limit: options.limit || 30,
-  });
-
-  console.log("\u2192 Proxying to /jarir/search with:", params);
-  const resp = await niceoneApi.get("/jarir/search", { params });
-  return { products: resp.data.products || [] };
-};
-
-export const testJarirConnection = async () => {
-  const resp = await niceoneApi.get("/jarir/test");
-  return resp.data;
 };

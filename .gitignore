@@ -21,3 +21,6 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# .env.production
+REACT_APP_API_URL=backend-production-ef32.up.railway.app
