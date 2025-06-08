@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
-import { db } from "../firebase";
 import { getEnrichedGiftSuggestions } from "../services/combinedGiftService";
 import { useContacts } from "../hooks/useContacts";
 
@@ -405,7 +403,11 @@ const GiftFlow = () => {
     if (currentStep > 0) {
       setCurrentStep(currentStep - 1);
     } else {
-      navigate("/UserInfo");
+      if (!user) {
+        navigate("/");
+      } else {
+        navigate("/UserInfo");
+      }
     }
   };
 
@@ -420,22 +422,9 @@ const GiftFlow = () => {
         age: formData.recipientAge,
         interests: formData.category,
         notes: formData.notes,
-        createdAt: new Date().toISOString(),
       };
 
-      const userDocRef = doc(db, "users", user.uid);
-      const userDoc = await getDoc(userDocRef);
-
-      if (userDoc.exists()) {
-        await updateDoc(userDocRef, {
-          contacts: arrayUnion(contactData),
-        });
-      } else {
-        await setDoc(userDocRef, {
-          contacts: [contactData],
-        });
-      }
-
+      await addContact(contactData);
       setSaveContact(false);
     } catch (err) {
       console.error("Error saving contact", err);
