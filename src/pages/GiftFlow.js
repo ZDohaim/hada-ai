@@ -746,6 +746,16 @@ const GiftFlow = () => {
               </span>
             </div>
           )}
+          {gift.isPlaceholder && (
+            <div className="absolute top-3 left-3">
+              <span
+                className="text-xs font-medium px-3 py-1.5 rounded-full shadow-lg"
+                style={{ backgroundColor: "#E3F2FD", color: "#1976D2" }}
+              >
+                {gift.source?.toUpperCase() || "SUGGESTION"}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="p-6">
@@ -798,7 +808,18 @@ const GiftFlow = () => {
             )}
           </div>
 
-          {productUrl && (
+          {gift.isPlaceholder ? (
+            <div
+              className="block w-full text-center py-3 rounded-xl font-medium tracking-wide border-2 border-dashed transition-all duration-300"
+              style={{
+                borderColor: "#D4A373",
+                color: "#5D4037",
+                backgroundColor: "rgba(212, 163, 115, 0.1)",
+              }}
+            >
+              Explore at {gift.source?.toUpperCase() || "Store"}
+            </div>
+          ) : productUrl ? (
             <a
               href={productUrl}
               target="_blank"
@@ -811,7 +832,7 @@ const GiftFlow = () => {
             >
               View Product
             </a>
-          )}
+          ) : null}
         </div>
       </div>
     );
@@ -1105,6 +1126,27 @@ const GiftFlow = () => {
           ...suggestion.product,
           category: suggestion.category,
           modifier: suggestion.modifier,
+          source: suggestion.source,
+        });
+      } else {
+        // Create a fallback gift card when product is null
+        flattenedGifts.push({
+          name: suggestion.modifier
+            ? `${suggestion.category} ${suggestion.modifier}`
+            : suggestion.category,
+          category: suggestion.category,
+          modifier: suggestion.modifier,
+          source: suggestion.source || "unknown",
+          description: suggestion.modifier
+            ? `${suggestion.modifier} from ${
+                suggestion.store || "our partners"
+              }`
+            : `${suggestion.category} suggestion from ${
+                suggestion.store || "our partners"
+              }`,
+          // Use a placeholder image based on category
+          image: null,
+          isPlaceholder: true,
         });
       }
 
@@ -1115,6 +1157,7 @@ const GiftFlow = () => {
               ...alt,
               category: suggestion.category,
               modifier: suggestion.modifier,
+              source: suggestion.source,
               isAlternative: true,
             });
           }
