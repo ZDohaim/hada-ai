@@ -667,11 +667,66 @@ app.post("/api/generate-gift", async (req, res) => {
             };
           } else if (store === "mahaly") {
             const products = await searchMahaly(query);
+
+            // If no results with specific query, try broader terms based on category
+            let fallbackProducts = [];
+            if (products.length === 0) {
+              console.log(
+                `No Mahaly results for "${query}", trying fallback searches...`
+              );
+
+              const fallbackQueries = [];
+              if (g.category === "Food & Drink") {
+                fallbackQueries.push(
+                  "coffee_beans",
+                  "coffee",
+                  "tea",
+                  "chocolate",
+                  "honey"
+                );
+              } else if (g.category === "Home Scents") {
+                fallbackQueries.push(
+                  "candle",
+                  "incense",
+                  "home_fragrance",
+                  "scent"
+                );
+              } else if (g.category === "Gifts") {
+                fallbackQueries.push("gift_set", "luxury", "premium", "gift");
+              } else if (g.category === "Perfume") {
+                fallbackQueries.push("perfume", "fragrance", "عطر");
+              } else if (g.category === "Care") {
+                fallbackQueries.push("skin_care", "body_care", "care");
+              } else if (g.category === "Health & Nutrition") {
+                fallbackQueries.push(
+                  "vitamin",
+                  "supplement",
+                  "health",
+                  "nutrition"
+                );
+              }
+
+              for (const fallbackQuery of fallbackQueries) {
+                const fallbackResults = await searchMahaly(fallbackQuery);
+                if (fallbackResults.length > 0) {
+                  fallbackProducts = fallbackResults;
+                  console.log(
+                    `Found ${fallbackResults.length} Mahaly results with fallback query: "${fallbackQuery}"`
+                  );
+                  break;
+                }
+              }
+            }
+
+            const finalProducts =
+              products.length > 0 ? products : fallbackProducts;
+
             return {
               ...g,
-              product: products[0] || null,
-              alternatives: products.slice(1, 4),
+              product: finalProducts[0] || null,
+              alternatives: finalProducts.slice(1, 4),
               source: "mahaly",
+              ...(fallbackProducts.length > 0 && { usedFallback: true }),
             };
           } else {
             // Default fallback to Mahaly for unknown stores
