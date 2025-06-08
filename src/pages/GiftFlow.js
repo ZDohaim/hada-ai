@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { getEnrichedGiftSuggestions } from "../services/combinedGiftService";
 import { useContacts } from "../hooks/useContacts";
+import { trackClick } from "../services/clickTracking";
 
 // Reminder Modal Component
 const ReminderModal = ({
@@ -670,6 +671,29 @@ const GiftFlow = () => {
     const productUrl =
       gift.url || gift.product_url || gift.share_url || gift.link;
 
+    // Determine company from gift source or URL
+    const getCompanyFromGift = (gift) => {
+      if (gift.source) {
+        return gift.source.toLowerCase();
+      }
+      if (productUrl) {
+        if (
+          productUrl.includes("mahaly.sa") ||
+          productUrl.includes("mahally.com")
+        )
+          return "mahaly";
+        if (productUrl.includes("niceone.sa")) return "niceone";
+        if (productUrl.includes("jarir.com")) return "jarir";
+      }
+      return "unknown";
+    };
+
+    const handleProductClick = async () => {
+      const company = getCompanyFromGift(gift);
+      const userId = user?.uid || null;
+      await trackClick(company, name, gift.category, userId);
+    };
+
     let price = null;
     let originalPrice = null;
 
@@ -835,6 +859,7 @@ const GiftFlow = () => {
                 background: "linear-gradient(135deg, #FFE0B2 0%, #FFCC80 100%)",
                 color: "#5D4037",
               }}
+              onClick={handleProductClick}
             >
               View Product
             </a>

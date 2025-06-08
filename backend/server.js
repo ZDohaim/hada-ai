@@ -265,9 +265,10 @@ const searchMahaly = async (query, retries = 2) => {
         title: item.name?.en || item.name?.ar || item.name || "Unknown Product",
         price: item.price?.SA?.SAR || null,
         image: item.image || null,
-        link: item.objectID
-          ? `https://mahaly.sa/product/${item.objectID}`
-          : null,
+        link:
+          item.objectID && item.store_id
+            ? `https://mahally.com/products/${item.store_id}/${item.objectID}`
+            : null,
         brand:
           item.brand_name?.en || item.brand_name?.ar || item.brand_name || null,
         id: item.objectID || null,

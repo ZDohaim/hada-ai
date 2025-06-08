@@ -6,6 +6,7 @@ import Login from "./components/Login";
 import UserInfo from "./pages/UserInfo";
 import ManageContacts from "./pages/ManageContacts";
 import PromptPage from "./components/PromptPage";
+import Analytics from "./pages/Analytics";
 import "./styles/global.css";
 
 function App() {
@@ -18,6 +19,7 @@ function App() {
         <Route path="/UserInfo" element={<UserInfo />} />
         <Route path="/manage-contacts" element={<ManageContacts />} />
         <Route path="/prompt-page" element={<PromptPage />} />
+        <Route path="/analytics" element={<Analytics />} />
       </Routes>
     </Router>
   );
