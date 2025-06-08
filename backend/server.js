@@ -262,13 +262,21 @@ const searchMahaly = async (query, retries = 2) => {
       );
 
       return hits.map((item) => ({
-        title: item.name || "Unknown Product",
+        title: item.name?.en || item.name?.ar || item.name || "Unknown Product",
         price: item.price?.SA?.SAR || null,
-        image: item.image_url || null,
-        link: item.url || item.slug || null,
-        brand: item.brand_name || null,
+        image: item.image || null,
+        link: item.objectID
+          ? `https://mahaly.sa/product/${item.objectID}`
+          : null,
+        brand:
+          item.brand_name?.en || item.brand_name?.ar || item.brand_name || null,
         id: item.objectID || null,
         sku: item.sku || null,
+        description: item.description?.en || item.description?.ar || null,
+        rating: item.rating || null,
+        sale_price: item.sale_price?.SA?.SAR || null,
+        regular_price: item.regular_price?.SA?.SAR || null,
+        has_special_price: item.has_special_price || false,
       }));
     } catch (err) {
       console.error(

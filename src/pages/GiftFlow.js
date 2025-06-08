@@ -673,7 +673,15 @@ const GiftFlow = () => {
     let price = null;
     let originalPrice = null;
 
-    if (gift.special && gift.special.length > 0) {
+    // Handle Mahaly price structure first
+    if (gift.sale_price && typeof gift.sale_price === "number") {
+      price = gift.sale_price.toString();
+      if (gift.regular_price && gift.regular_price !== gift.sale_price) {
+        originalPrice = gift.regular_price.toString();
+      }
+    } else if (gift.price && typeof gift.price === "number") {
+      price = gift.price.toString();
+    } else if (gift.special && gift.special.length > 0) {
       const specialPrice =
         gift.special[0].priceWithoutCurrency ||
         (typeof gift.special[0].price_formated === "string"
@@ -698,8 +706,6 @@ const GiftFlow = () => {
       }
     } else if (typeof gift.price === "string") {
       price = gift.price.replace(/[^0-9.]/g, "");
-    } else if (typeof gift.price === "number") {
-      price = gift.price.toString();
     }
 
     const isLongDescription = description && description.length > 100;
