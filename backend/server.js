@@ -534,7 +534,7 @@ app.post("/api/generate-gift", async (req, res) => {
       content: `
       You are Hadai.ai, an elite gift assistant specializing in luxury and culturally relevant gifts for users in Saudi Arabia.
       
-      Your task is to generate tasteful, upper-class gift recommendations using only the following fixed categories:
+      Your task is to generate 6-8 diverse, tasteful gift recommendations using only the following fixed categories:
       Makeup, Perfume, Care, Health & Nutrition, Devices, Premium, Nails, Gifts, Lenses, Home Scents, Food & Drink.
       
       For each gift, determine the appropriate store using these STRICT rules:
@@ -550,19 +550,26 @@ app.post("/api/generate-gift", async (req, res) => {
         * Premium items that don't fit the above categories (e.g. luxury watches, jewelry, etc.)
         * Any item with coffee, food, home goods, etc.
       
-      IMPORTANT: When in doubt, choose MAHALY as the default store. 
+      IMPORTANT: 
+      - Generate diverse recommendations from DIFFERENT sources if seen fit (mix of JARIR, NICEONE, and MAHALY)
+      - Vary the categories and price points to provide comprehensive options based on user input
+      - When in doubt, choose MAHALY as the default store
       
       Each item must include:
       - "category" (one of the above)
       - "store" (either "JARIR", "NICEONE", or "MAHALY")
-      - Optional "modifier" (1–4 elegant words like "oud-infused perfume" or "gaming headset").
+      - "search_context" (specific search terms that will help find the perfect product)
+      - Optional "modifier" (1–4 elegant words like "oud-infused perfume" or "gaming headset")
       
       Return in this exact JSON format:
       {
         "gifts": [
-          { "category": "Perfume", "store": "MAHALY", "modifier": "luxury oud blend" },
-          { "category": "Devices", "store": "JARIR", "modifier": "gaming headset" },
-          { "category": "Gifts", "store": "MAHALY", "modifier": "coffee beans" }
+          { "category": "Perfume", "store": "MAHALY", "search_context": "luxury oud perfume gift set", "modifier": "luxury oud blend" },
+          { "category": "Devices", "store": "JARIR", "search_context": "wireless gaming headset bluetooth", "modifier": "gaming headset" },
+          { "category": "Makeup", "store": "NICEONE", "search_context": "premium makeup palette eyeshadow", "modifier": "eyeshadow palette" },
+          { "category": "Food & Drink", "store": "MAHALY", "search_context": "gourmet coffee beans arabica", "modifier": "artisan coffee" },
+          { "category": "Home Scents", "store": "MAHALY", "search_context": "luxury candle home fragrance", "modifier": "scented candle" },
+          { "category": "Care", "store": "NICEONE", "search_context": "skincare set moisturizer serum", "modifier": "skincare set" }
         ]
       }
       
@@ -631,9 +638,9 @@ app.post("/api/generate-gift", async (req, res) => {
     if (!prefs.enrichWithProducts) return res.json({ gifts });
 
     const enriched = await Promise.all(
-      gifts.map(async (g) => {
+      gifts.map(async (g, index) => {
         const store = g.store ? g.store.toLowerCase() : "unknown";
-        const query = g.modifier || g.category;
+        const query = g.search_context || g.modifier || g.category;
 
         try {
           if (store === "niceone") {
@@ -642,7 +649,7 @@ app.post("/api/generate-gift", async (req, res) => {
               search: query,
               sort: "most_popular",
               page: 1,
-              limit: 10,
+              limit: 5,
               first: false,
             };
 
@@ -655,22 +662,25 @@ app.post("/api/generate-gift", async (req, res) => {
             return {
               ...g,
               product: products[0] || null,
-              alternatives: products.slice(1, 4),
               source: "niceone",
+              searchQuery: query,
+              recommendation_id: `niceone_${index}`,
             };
           } else if (store === "jarir") {
             const products = await searchJarir(query);
             return {
               ...g,
               product: products[0] || null,
-              alternatives: products.slice(1, 4),
               source: "jarir",
+              searchQuery: query,
+              recommendation_id: `jarir_${index}`,
             };
           } else if (store === "mahaly") {
             const products = await searchMahaly(query);
 
             // If no results with specific query, try broader terms based on category
             let fallbackProducts = [];
+            let usedQuery = query;
             if (products.length === 0) {
               console.log(
                 `No Mahaly results for "${query}", trying fallback searches...`
@@ -711,6 +721,7 @@ app.post("/api/generate-gift", async (req, res) => {
                 const fallbackResults = await searchMahaly(fallbackQuery);
                 if (fallbackResults.length > 0) {
                   fallbackProducts = fallbackResults;
+                  usedQuery = fallbackQuery;
                   console.log(
                     `Found ${fallbackResults.length} Mahaly results with fallback query: "${fallbackQuery}"`
                   );
@@ -725,8 +736,9 @@ app.post("/api/generate-gift", async (req, res) => {
             return {
               ...g,
               product: finalProducts[0] || null,
-              alternatives: finalProducts.slice(1, 4),
               source: "mahaly",
+              searchQuery: usedQuery,
+              recommendation_id: `mahaly_${index}`,
               ...(fallbackProducts.length > 0 && { usedFallback: true }),
             };
           } else {
@@ -738,8 +750,9 @@ app.post("/api/generate-gift", async (req, res) => {
             return {
               ...g,
               product: products[0] || null,
-              alternatives: products.slice(1, 4),
               source: "mahaly",
+              searchQuery: query,
+              recommendation_id: `fallback_${index}`,
               fallback: true,
             };
           }
@@ -751,7 +764,9 @@ app.post("/api/generate-gift", async (req, res) => {
           return {
             ...g,
             product: null,
-            alternatives: [],
+            source: store,
+            searchQuery: query,
+            recommendation_id: `error_${index}`,
             enrichmentError: true,
           };
         }

@@ -658,15 +658,29 @@ const GiftFlow = () => {
     const description =
       gift.description ||
       gift.short_description ||
-      `${gift.isAlternative ? "Alternative " : ""}${gift.category} ${
-        gift.modifier || ""
-      }`;
+      `${gift.category} ${gift.modifier || ""}`;
 
-    const imageUrl =
-      gift.image ||
-      gift.thumb ||
-      gift.imageUrl ||
-      (gift.images && gift.images[0]);
+    // Improved image URL handling with source-specific logic
+    let imageUrl = null;
+    if (gift.images && Array.isArray(gift.images) && gift.images.length > 0) {
+      imageUrl = gift.images[0];
+    } else if (gift.image) {
+      imageUrl = gift.image;
+    } else if (gift.thumb) {
+      imageUrl = gift.thumb;
+    } else if (gift.imageUrl) {
+      imageUrl = gift.imageUrl;
+    }
+
+    // Special handling for Jarir images to ensure proper loading
+    if (gift.source === "jarir" && imageUrl) {
+      // Ensure the image URL is properly formatted for Jarir
+      if (!imageUrl.startsWith("http") && !imageUrl.startsWith("//")) {
+        imageUrl = `https://www.jarir.com${imageUrl}`;
+      } else if (imageUrl.startsWith("//")) {
+        imageUrl = `https:${imageUrl}`;
+      }
+    }
 
     const productUrl =
       gift.url || gift.product_url || gift.share_url || gift.link;
@@ -747,12 +761,44 @@ const GiftFlow = () => {
             <img
               src={imageUrl}
               alt={name}
-              className="w-full h-full object-cover transition-transform duration-300 hover:scale-110"
+              className="w-full h-full object-contain bg-white transition-transform duration-300 hover:scale-110"
+              style={{
+                objectFit: gift.source === "jarir" ? "contain" : "cover",
+              }}
               onError={(e) => {
-                console.log("Image failed to load:", imageUrl);
+                console.log(
+                  "Image failed to load:",
+                  imageUrl,
+                  "Source:",
+                  gift.source
+                );
                 e.target.onerror = null;
-                e.target.src =
-                  "https://via.placeholder.com/400x200?text=Gift+Suggestion";
+                // Try a different fallback based on source
+                if (gift.source === "jarir" && imageUrl.includes("jarir.com")) {
+                  // For Jarir, try removing any path prefixes that might be causing issues
+                  const cleanImageUrl = imageUrl.replace(
+                    /.*\/([^\/]+\.(jpg|jpeg|png|gif|webp)).*$/i,
+                    "https://www.jarir.com/media/catalog/product/$1"
+                  );
+                  if (cleanImageUrl !== imageUrl) {
+                    e.target.src = cleanImageUrl;
+                    return;
+                  }
+                }
+                // Final fallback
+                e.target.parentElement.innerHTML = `
+                  <div class="h-full bg-gradient-to-br from-amber-200 to-amber-300 flex items-center justify-center" style="color: #5D4037">
+                    <div class="text-center p-4">
+                      <span class="text-5xl mb-3 block">🎁</span>
+                      <p class="font-medium text-lg">${
+                        gift.category || "Gift"
+                      }</p>
+                      <p class="text-sm opacity-75 mt-1">${
+                        gift.source?.toUpperCase() || "CURATED"
+                      }</p>
+                    </div>
+                  </div>
+                `;
               }}
             />
           ) : (
@@ -763,26 +809,32 @@ const GiftFlow = () => {
               <div className="text-center p-4">
                 <span className="text-5xl mb-3 block">🎁</span>
                 <p className="font-medium text-lg">{gift.category || "Gift"}</p>
+                <p className="text-sm opacity-75 mt-1">
+                  {gift.source?.toUpperCase() || "CURATED"}
+                </p>
               </div>
             </div>
           )}
-          {gift.isAlternative && (
-            <div className="absolute top-3 right-3">
+          {/* Source indicator for all recommendations */}
+          <div className="absolute top-3 right-3">
+            <span
+              className="text-xs font-medium px-3 py-1.5 rounded-full shadow-lg"
+              style={{
+                backgroundColor: gift.isPlaceholder ? "#E3F2FD" : "#FFE0B2",
+                color: gift.isPlaceholder ? "#1976D2" : "#5D4037",
+              }}
+            >
+              {gift.source?.toUpperCase() || "CURATED"}
+            </span>
+          </div>
+          {/* Search context indicator for better understanding */}
+          {gift.searchContext && (
+            <div className="absolute bottom-3 left-3">
               <span
-                className="text-xs font-medium px-3 py-1.5 rounded-full shadow-lg"
-                style={{ backgroundColor: "#FFE0B2", color: "#5D4037" }}
+                className="text-xs font-medium px-2 py-1 rounded-full shadow-lg opacity-80"
+                style={{ backgroundColor: "rgba(0,0,0,0.7)", color: "white" }}
               >
-                Alternative
-              </span>
-            </div>
-          )}
-          {gift.isPlaceholder && (
-            <div className="absolute top-3 left-3">
-              <span
-                className="text-xs font-medium px-3 py-1.5 rounded-full shadow-lg"
-                style={{ backgroundColor: "#E3F2FD", color: "#1976D2" }}
-              >
-                {gift.source?.toUpperCase() || "SUGGESTION"}
+                {gift.searchContext.split(" ").slice(0, 2).join(" ")}
               </span>
             </div>
           )}
@@ -1149,25 +1201,31 @@ const GiftFlow = () => {
       );
     }
 
-    const flattenedGifts = [];
+    const curatedRecommendations = [];
 
     results.forEach((suggestion) => {
       if (suggestion.product) {
-        flattenedGifts.push({
+        curatedRecommendations.push({
           ...suggestion.product,
           category: suggestion.category,
           modifier: suggestion.modifier,
           source: suggestion.source,
+          searchQuery: suggestion.searchQuery,
+          recommendation_id: suggestion.recommendation_id,
+          searchContext: suggestion.search_context,
         });
       } else {
         // Create a fallback gift card when product is null
-        flattenedGifts.push({
+        curatedRecommendations.push({
           name: suggestion.modifier
             ? `${suggestion.category} ${suggestion.modifier}`
             : suggestion.category,
           category: suggestion.category,
           modifier: suggestion.modifier,
           source: suggestion.source || "unknown",
+          searchQuery: suggestion.searchQuery,
+          recommendation_id: suggestion.recommendation_id,
+          searchContext: suggestion.search_context,
           description: suggestion.modifier
             ? `${suggestion.modifier} from ${
                 suggestion.store || "our partners"
@@ -1178,20 +1236,6 @@ const GiftFlow = () => {
           // Use a placeholder image based on category
           image: null,
           isPlaceholder: true,
-        });
-      }
-
-      if (suggestion.alternatives && Array.isArray(suggestion.alternatives)) {
-        suggestion.alternatives.forEach((alt) => {
-          if (alt) {
-            flattenedGifts.push({
-              ...alt,
-              category: suggestion.category,
-              modifier: suggestion.modifier,
-              source: suggestion.source,
-              isAlternative: true,
-            });
-          }
         });
       }
     });
@@ -1206,7 +1250,7 @@ const GiftFlow = () => {
               fontFamily: "'Playfair Display', serif",
             }}
           >
-            Perfect Gift Suggestions
+            Curated Gift Recommendations
           </h2>
           <button
             onClick={() => navigate("/UserInfo")}
@@ -1221,8 +1265,8 @@ const GiftFlow = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {flattenedGifts.map((gift, index) => (
-            <GiftCard key={index} gift={gift} />
+          {curatedRecommendations.map((gift, index) => (
+            <GiftCard key={`${gift.recommendation_id || index}`} gift={gift} />
           ))}
         </div>
 
