@@ -48,7 +48,6 @@ const Analytics = () => {
 
   const getCompanyDisplayName = (company) => {
     const names = {
-      mahaly: "Mahaly",
       niceone: "NiceOne",
       jarir: "Jarir",
     };
@@ -57,7 +56,6 @@ const Analytics = () => {
 
   const getCompanyColor = (company) => {
     const colors = {
-      mahaly: "#FF6B6B",
       niceone: "#4ECDC4",
       jarir: "#45B7D1",
     };
@@ -91,7 +89,7 @@ const Analytics = () => {
     );
   }
 
-  const companies = ["mahaly", "niceone", "jarir"];
+  const companies = ["niceone", "jarir"];
   const totalClicks = stats.total?.totalClicks || 0;
 
   return (
@@ -242,15 +240,6 @@ const Analytics = () => {
                 🎯 Partner Stores
               </h4>
               <ul className="text-[#5D4037] space-y-2">
-                <li>
-                  <span
-                    className="font-semibold"
-                    style={{ color: getCompanyColor("mahaly") }}
-                  >
-                    Mahaly:
-                  </span>{" "}
-                  Health, nutrition, food, home scents
-                </li>
                 <li>
                   <span
                     className="font-semibold"

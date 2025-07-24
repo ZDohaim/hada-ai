@@ -11,7 +11,7 @@ import {
 
 /**
  * Track a click to a company store
- * @param {string} company - Company name (mahaly, niceone, jarir)
+ * @param {string} company - Company name (niceone, jarir)
  * @param {string} productName - Name of the clicked product
  * @param {string} category - Category of the gift
  * @param {string} userId - User ID (if authenticated)
@@ -85,7 +85,7 @@ export const getClickStats = async () => {
     const stats = {};
 
     // Get company-specific stats
-    const companies = ["mahaly", "niceone", "jarir"];
+    const companies = ["niceone", "jarir"];
 
     for (const company of companies) {
       const companyDocRef = doc(db, "clickTracking", company);

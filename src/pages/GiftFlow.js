@@ -649,27 +649,41 @@ const GiftFlow = () => {
   // Gift Card Component
   const GiftCard = ({ gift }) => {
     const [showFullDescription, setShowFullDescription] = useState(false);
+    const [selectedProductIndex, setSelectedProductIndex] = useState(0);
+
+    // Get all available products (new multiple products support)
+    const allProducts =
+      gift.products && gift.products.length > 0
+        ? gift.products
+        : [gift.product || gift];
+    const hasMultipleProducts = allProducts.length > 1;
+    const currentProduct =
+      allProducts[selectedProductIndex] || allProducts[0] || gift;
 
     const name =
-      gift.name ||
-      gift.title ||
-      gift.en_name ||
+      currentProduct.name ||
+      currentProduct.title ||
+      currentProduct.en_name ||
       `${gift.category} ${gift.modifier || ""}`.trim();
     const description =
-      gift.description ||
-      gift.short_description ||
+      currentProduct.description ||
+      currentProduct.short_description ||
       `${gift.category} ${gift.modifier || ""}`;
 
     // Improved image URL handling with source-specific logic
     let imageUrl = null;
-    if (gift.images && Array.isArray(gift.images) && gift.images.length > 0) {
-      imageUrl = gift.images[0];
-    } else if (gift.image) {
-      imageUrl = gift.image;
-    } else if (gift.thumb) {
-      imageUrl = gift.thumb;
-    } else if (gift.imageUrl) {
-      imageUrl = gift.imageUrl;
+    if (
+      currentProduct.images &&
+      Array.isArray(currentProduct.images) &&
+      currentProduct.images.length > 0
+    ) {
+      imageUrl = currentProduct.images[0];
+    } else if (currentProduct.image) {
+      imageUrl = currentProduct.image;
+    } else if (currentProduct.thumb) {
+      imageUrl = currentProduct.thumb;
+    } else if (currentProduct.imageUrl) {
+      imageUrl = currentProduct.imageUrl;
     }
 
     // Special handling for Jarir images to ensure proper loading
@@ -683,7 +697,10 @@ const GiftFlow = () => {
     }
 
     const productUrl =
-      gift.url || gift.product_url || gift.share_url || gift.link;
+      currentProduct.url ||
+      currentProduct.product_url ||
+      currentProduct.share_url ||
+      currentProduct.link;
 
     // Determine company from gift source or URL
     const getCompanyFromGift = (gift) => {
@@ -691,11 +708,6 @@ const GiftFlow = () => {
         return gift.source.toLowerCase();
       }
       if (productUrl) {
-        if (
-          productUrl.includes("mahaly.sa") ||
-          productUrl.includes("mahally.com")
-        )
-          return "mahaly";
         if (productUrl.includes("niceone.sa")) return "niceone";
         if (productUrl.includes("jarir.com")) return "jarir";
       }
@@ -712,38 +724,47 @@ const GiftFlow = () => {
     let originalPrice = null;
 
     // Handle Mahaly price structure first
-    if (gift.sale_price && typeof gift.sale_price === "number") {
-      price = gift.sale_price.toString();
-      if (gift.regular_price && gift.regular_price !== gift.sale_price) {
-        originalPrice = gift.regular_price.toString();
+    if (
+      currentProduct.sale_price &&
+      typeof currentProduct.sale_price === "number"
+    ) {
+      price = currentProduct.sale_price.toString();
+      if (
+        currentProduct.regular_price &&
+        currentProduct.regular_price !== currentProduct.sale_price
+      ) {
+        originalPrice = currentProduct.regular_price.toString();
       }
-    } else if (gift.price && typeof gift.price === "number") {
-      price = gift.price.toString();
-    } else if (gift.special && gift.special.length > 0) {
+    } else if (
+      currentProduct.price &&
+      typeof currentProduct.price === "number"
+    ) {
+      price = currentProduct.price.toString();
+    } else if (currentProduct.special && currentProduct.special.length > 0) {
       const specialPrice =
-        gift.special[0].priceWithoutCurrency ||
-        (typeof gift.special[0].price_formated === "string"
-          ? gift.special[0].price_formated.replace(/[^0-9.]/g, "")
+        currentProduct.special[0].priceWithoutCurrency ||
+        (typeof currentProduct.special[0].price_formated === "string"
+          ? currentProduct.special[0].price_formated.replace(/[^0-9.]/g, "")
           : null);
 
       const origPrice =
-        gift.special[0].originalPriceWithoutCurrency ||
-        (typeof gift.special[0].original_price === "string"
-          ? gift.special[0].original_price.replace(/[^0-9.]/g, "")
+        currentProduct.special[0].originalPriceWithoutCurrency ||
+        (typeof currentProduct.special[0].original_price === "string"
+          ? currentProduct.special[0].original_price.replace(/[^0-9.]/g, "")
           : null);
 
       if (specialPrice) price = specialPrice;
       if (origPrice) originalPrice = origPrice;
     } else if (
-      typeof gift.price === "object" &&
-      gift.price.priceWithoutCurrency
+      typeof currentProduct.price === "object" &&
+      currentProduct.price.priceWithoutCurrency
     ) {
-      price = gift.price.priceWithoutCurrency;
-      if (gift.price.originalPriceWithoutCurrency) {
-        originalPrice = gift.price.originalPriceWithoutCurrency;
+      price = currentProduct.price.priceWithoutCurrency;
+      if (currentProduct.price.originalPriceWithoutCurrency) {
+        originalPrice = currentProduct.price.originalPriceWithoutCurrency;
       }
-    } else if (typeof gift.price === "string") {
-      price = gift.price.replace(/[^0-9.]/g, "");
+    } else if (typeof currentProduct.price === "string") {
+      price = currentProduct.price.replace(/[^0-9.]/g, "");
     }
 
     const isLongDescription = description && description.length > 100;
@@ -751,11 +772,60 @@ const GiftFlow = () => {
       ? `${description.substring(0, 100)}...`
       : description;
 
+    // --- Highlight popular items for Jarir ---
+    // Check if current product is popular/trending
+    let isPopular = false;
+    let popularLabel = "";
+    if (gift.source === "jarir" && Array.isArray(currentProduct.tags)) {
+      const popTag = currentProduct.tags.find(
+        (t) => t.label === "Trending Now" || t.label === "Best Sellers"
+      );
+      if (popTag) {
+        isPopular = true;
+        popularLabel = popTag.label;
+      }
+    }
+
     return (
       <div
-        className="bg-white rounded-2xl shadow-xl overflow-hidden border border-opacity-20 hover:shadow-2xl transition-all duration-300 transform hover:scale-105"
+        className={`bg-white rounded-2xl shadow-xl overflow-hidden border border-opacity-20 hover:shadow-2xl transition-all duration-300 transform hover:scale-105 ${
+          isPopular ? "ring-2 ring-amber-400" : ""
+        }`}
         style={{ borderColor: "#D4A373" }}
       >
+        {/* Product Selection Tabs - Only show if multiple products */}
+        {hasMultipleProducts && (
+          <div
+            className="border-b border-opacity-20"
+            style={{ borderColor: "#D4A373" }}
+          >
+            <div className="flex overflow-x-auto scrollbar-hide">
+              {allProducts.map((product, index) => (
+                <button
+                  key={index}
+                  onClick={() => setSelectedProductIndex(index)}
+                  className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all duration-300 min-w-0 flex-shrink-0 ${
+                    selectedProductIndex === index
+                      ? "border-amber-400 text-amber-700 bg-amber-50"
+                      : "border-transparent text-gray-600 hover:text-amber-600 hover:bg-amber-25"
+                  }`}
+                >
+                  Option {index + 1}
+                  {product.price && (
+                    <span className="ml-2 text-xs opacity-75">
+                      {typeof product.price === "number"
+                        ? `${product.price} SAR`
+                        : product.price.toString().includes("SAR")
+                        ? product.price
+                        : `${product.price} SAR`}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="h-56 overflow-hidden relative">
           {imageUrl ? (
             <img
@@ -816,7 +886,7 @@ const GiftFlow = () => {
             </div>
           )}
           {/* Source indicator for all recommendations */}
-          <div className="absolute top-3 right-3">
+          <div className="absolute top-3 right-3 flex flex-col items-end gap-2">
             <span
               className="text-xs font-medium px-3 py-1.5 rounded-full shadow-lg"
               style={{
@@ -826,7 +896,27 @@ const GiftFlow = () => {
             >
               {gift.source?.toUpperCase() || "CURATED"}
             </span>
+            {/* Popular badge for Jarir */}
+            {isPopular && (
+              <span className="text-xs font-bold px-2 py-1 rounded shadow bg-amber-400 text-white animate-pulse">
+                {popularLabel}
+              </span>
+            )}
           </div>
+          {/* Multiple products indicator */}
+          {hasMultipleProducts && (
+            <div className="absolute top-3 left-3">
+              <span
+                className="text-xs font-medium px-2 py-1 rounded-full shadow-lg"
+                style={{
+                  backgroundColor: "rgba(34, 197, 94, 0.9)",
+                  color: "white",
+                }}
+              >
+                {allProducts.length} Options
+              </span>
+            </div>
+          )}
           {/* Search context indicator for better understanding */}
           {gift.searchContext && (
             <div className="absolute bottom-3 left-3">
@@ -890,32 +980,49 @@ const GiftFlow = () => {
             )}
           </div>
 
-          {gift.isPlaceholder ? (
-            <div
-              className="block w-full text-center py-3 rounded-xl font-medium tracking-wide border-2 border-dashed transition-all duration-300"
-              style={{
-                borderColor: "#D4A373",
-                color: "#5D4037",
-                backgroundColor: "rgba(212, 163, 115, 0.1)",
-              }}
-            >
-              Explore at {gift.source?.toUpperCase() || "Store"}
-            </div>
-          ) : productUrl ? (
-            <a
-              href={productUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full text-center py-3 rounded-xl font-medium tracking-wide transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
-              style={{
-                background: "linear-gradient(135deg, #FFE0B2 0%, #FFCC80 100%)",
-                color: "#5D4037",
-              }}
-              onClick={handleProductClick}
-            >
-              View Product
-            </a>
-          ) : null}
+          {/* Action buttons */}
+          <div className="space-y-3">
+            {gift.isPlaceholder ? (
+              <div
+                className="block w-full text-center py-3 rounded-xl font-medium tracking-wide border-2 border-dashed transition-all duration-300"
+                style={{
+                  borderColor: "#D4A373",
+                  color: "#5D4037",
+                  backgroundColor: "rgba(212, 163, 115, 0.1)",
+                }}
+              >
+                Explore at {gift.source?.toUpperCase() || "Store"}
+              </div>
+            ) : productUrl ? (
+              <a
+                href={productUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center py-3 rounded-xl font-medium tracking-wide transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
+                style={{
+                  background:
+                    "linear-gradient(135deg, #FFE0B2 0%, #FFCC80 100%)",
+                  color: "#5D4037",
+                }}
+                onClick={handleProductClick}
+              >
+                View Product{" "}
+                {hasMultipleProducts
+                  ? `(${selectedProductIndex + 1}/${allProducts.length})`
+                  : ""}
+              </a>
+            ) : null}
+
+            {/* Show all products link if multiple options */}
+            {hasMultipleProducts && (
+              <div className="text-center">
+                <span className="text-sm" style={{ color: "#8D6E63" }}>
+                  💡 Browse through the tabs above to see all{" "}
+                  {allProducts.length} options
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );

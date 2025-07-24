@@ -55,26 +55,6 @@ jarirApi.interceptors.response.use(
   }
 );
 
-const mahalyApi = axios.create({
-  baseURL: "https://l41y35uonw-dsn.algolia.net/1/indexes/*/queries",
-  timeout: 30000,
-});
-
-mahalyApi.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    console.error("Mahaly API Error:", {
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      url: error.config?.url,
-      params: error.config?.params,
-      message: error.message,
-    });
-    return Promise.reject(error);
-  }
-);
-
 const getNiceOneHeaders = () => ({
   accept: "*/*",
   "accept-language": "en,en-US;q=0.9,ar;q=0.8",
@@ -120,13 +100,6 @@ const getJarirHeaders = () => ({
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
 });
 
-const getMahalyHeaders = () => ({
-  Accept: "*/*",
-  "Content-Type": "application/json",
-  Origin: "https://mahally.com",
-  Referer: "https://mahally.com/",
-});
-
 const pruneEmpty = (obj) => {
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -144,14 +117,16 @@ const extractProducts = (res) => {
   );
 };
 
+// --- PATCH: Update Jarir search for popularity and trending ---
 const searchJarir = async (query, retries = 2) => {
+  // Use popularity sort (sort-priority) instead of default relevance
   const params = {
     autoComplete: true,
     typeOfSuggestions: "cms|category",
     noOfResults: 12,
     noOfResultsAC: 5,
     enablePartialSearch: false,
-    sortOrder: "rel",
+    sortOrder: "priority", // Use popularity sort
     showOutOfStockProducts: true,
     paginationStartsFrom: 0,
     visibility: "search",
@@ -169,30 +144,29 @@ const searchJarir = async (query, retries = 2) => {
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      console.log(`→ Jarir API attempt ${attempt + 1} for: "${query}"`);
+      console.log(
+        `→ Jarir API attempt ${attempt + 1} for: "${query}" (popularity sort)`
+      );
 
       const res = await jarirApi.get("", {
         params,
         headers: getJarirHeaders(),
       });
 
-      console.log(`📊 Jarir API response structure:`, {
-        status: res.status,
-        dataKeys: Object.keys(res.data || {}),
-        resultKeys: res.data.result
-          ? Object.keys(res.data.result)
-          : "no result key",
-        fullResponse: JSON.stringify(res.data).substring(0, 500) + "...",
-      });
-
-      // The result is an array, not an object with records
       const results = res.data.result || [];
-
+      // Filter for 'Trending Now' or 'Best Sellers' tags if available
+      const popularTags = ["Trending Now", "Best Sellers"];
+      const filteredResults = results.filter((item) => {
+        if (!item.producttag_data) return false;
+        return item.producttag_data.some((tag) =>
+          popularTags.includes(tag.label)
+        );
+      });
       console.log(
-        `✓ Jarir API success: ${results.length} results for "${query}"`
+        `✓ Jarir API: ${filteredResults.length} popular/trending results for "${query}"`
       );
 
-      return results.map((item) => ({
+      return filteredResults.map((item) => ({
         title: item.name || item.itemName || "Unknown Product",
         price: item.price || item.salePrice || null,
         image: item.image || item.imageUrl || null,
@@ -200,6 +174,8 @@ const searchJarir = async (query, retries = 2) => {
         brand: item.brand || item.brandName || null,
         id: item.id || item.itemId || null,
         sku: item.sku || null,
+        tags: item.producttag_data || [],
+        priority: item.priority || null,
       }));
     } catch (err) {
       console.error(
@@ -211,90 +187,9 @@ const searchJarir = async (query, retries = 2) => {
         console.error(`✗ All Jarir API attempts failed for "${query}"`);
         return [];
       }
-
-      // Wait before retry (exponential backoff)
       await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
     }
   }
-
-  return [];
-};
-
-const searchMahaly = async (query, retries = 2) => {
-  const requestBody = {
-    requests: [
-      {
-        indexName: "products_v2_updated_at_desc",
-        params: `analytics=true&analyticsTags=["web","original","No Gender","guest_trendy_category_1","updated_at_desc"]&clickAnalytics=true&facets=["brand_name.ar","categories.lvl0","has_special_price","payment_options","price.SA.SAR","rating","variants.color","variants.size"]&filters=price.SA.SAR > 0 AND status:sale&highlightPostTag=__/ais-highlight__&highlightPreTag=__ais-highlight__&hitsPerPage=30&maxValuesPerFacet=100&page=1&query=${encodeURIComponent(
-          query
-        )}&userToken=anonymous-3e2e26c2-910a-4b9c-8982-4913326ef235&ruleContexts=["web","No gender"]`,
-      },
-    ],
-  };
-
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      console.log(`→ Mahaly API attempt ${attempt + 1} for: "${query}"`);
-
-      const res = await mahalyApi.post("", requestBody, {
-        headers: getMahalyHeaders(),
-        params: {
-          "x-algolia-agent":
-            "Algolia%20for%20JavaScript%20(4.23.3)%3B%20Browser%20(lite)%3B%20instantsearch.js%20(4.77.3)%3B%20react%20(19.0.0-rc-65e06cb7-20241218)%3B%20react-instantsearch%20(7.15.3)%3B%20react-instantsearch-core%20(7.15.3)%3B%20next.js%20(15.1.7)%3B%20JS%20Helper%20(3.24.1)%3B%20autocomplete-core%20(1.17.1)%3B%20autocomplete-js%20(1.17.1)",
-          "x-algolia-api-key": "ccc9490de8160382395ae82c7a96d8b0",
-          "x-algolia-application-id": "L41Y35UONW",
-        },
-      });
-
-      console.log(`📊 Mahaly API response structure:`, {
-        status: res.status,
-        dataKeys: Object.keys(res.data || {}),
-        resultKeys: res.data.results
-          ? Object.keys(res.data.results[0] || {})
-          : "no results key",
-        fullResponse: JSON.stringify(res.data).substring(0, 500) + "...",
-      });
-
-      const hits = res.data.results?.[0]?.hits || [];
-
-      console.log(
-        `✓ Mahaly API success: ${hits.length} results for "${query}"`
-      );
-
-      return hits.map((item) => ({
-        title: item.name?.en || item.name?.ar || item.name || "Unknown Product",
-        price: item.price?.SA?.SAR || null,
-        image: item.image || null,
-        link:
-          item.objectID && item.store_id
-            ? `https://mahally.com/products/${item.store_id}/${item.objectID}`
-            : null,
-        brand:
-          item.brand_name?.en || item.brand_name?.ar || item.brand_name || null,
-        id: item.objectID || null,
-        sku: item.sku || null,
-        description: item.description?.en || item.description?.ar || null,
-        rating: item.rating || null,
-        sale_price: item.sale_price?.SA?.SAR || null,
-        regular_price: item.regular_price?.SA?.SAR || null,
-        has_special_price: item.has_special_price || false,
-      }));
-    } catch (err) {
-      console.error(
-        `✗ Mahaly API attempt ${attempt + 1} failed for "${query}":`,
-        err.message
-      );
-
-      if (attempt === retries) {
-        console.error(`✗ All Mahaly API attempts failed for "${query}"`);
-        return [];
-      }
-
-      // Wait before retry (exponential backoff)
-      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
-    }
-  }
-
   return [];
 };
 
@@ -302,15 +197,9 @@ app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
 app.get("/api/version-check", (req, res) => {
   res.json({
-    version: "Updated with Mahaly API",
+    version: "Updated with Jarir/NiceOne only",
     timestamp: new Date().toISOString(),
-    mahalyConfigured: true,
-    endpoints: [
-      "/api/mahaly/search",
-      "/api/mahaly/test",
-      "/api/jarir/search",
-      "/api/niceone/search",
-    ],
+    endpoints: ["/api/jarir/search", "/api/niceone/search"],
   });
 });
 
@@ -439,35 +328,6 @@ app.get("/api/jarir/test", async (req, res) => {
   }
 });
 
-app.get("/api/mahaly/search", async (req, res) => {
-  try {
-    const { q, limit } = req.query;
-    if (!q) return res.status(400).json({ error: "q required" });
-
-    console.log("→ Mahaly search for:", q);
-    const products = await searchMahaly(q);
-    const limitedProducts = limit
-      ? products.slice(0, parseInt(limit))
-      : products;
-
-    return res.json({ products: limitedProducts });
-  } catch (err) {
-    console.error("Mahaly search error:", err.message);
-    return res
-      .status(500)
-      .json({ error: "Mahaly search failed", details: err.message });
-  }
-});
-
-app.get("/api/mahaly/test", async (req, res) => {
-  try {
-    const products = await searchMahaly("perfume");
-    res.json({ success: true, sampleCount: products.length });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
 app.get("/api/test-openai", async (req, res) => {
   try {
     if (!openai) {
@@ -480,7 +340,7 @@ app.get("/api/test-openai", async (req, res) => {
 
     // Simple test to check if OpenAI API is working
     const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: "Say 'OpenAI test successful'" }],
     });
 
@@ -501,7 +361,7 @@ app.get("/api/test-openai", async (req, res) => {
 
 app.post("/api/generate-gift", async (req, res) => {
   console.log(
-    "GENERATE-GIFT ENDPOINT HIT - Updated version with Mahaly logging"
+    "GENERATE-GIFT ENDPOINT HIT - Updated version with enhanced search accuracy"
   );
   try {
     if (!openai) throw new Error("OpenAI not initialized");
@@ -510,8 +370,31 @@ app.post("/api/generate-gift", async (req, res) => {
     // Log the received preferences
     console.log("Received preferences:", prefs);
 
+    // Build context-aware prompt that avoids irrelevant occasions
+    let occasionContext = "";
+    if (
+      prefs.description &&
+      prefs.description.toLowerCase().includes("birthday")
+    ) {
+      occasionContext = "\nOccasion: Birthday celebration";
+    } else if (
+      prefs.description &&
+      prefs.description.toLowerCase().includes("anniversary")
+    ) {
+      occasionContext = "\nOccasion: Anniversary";
+    } else if (
+      prefs.description &&
+      (prefs.description.toLowerCase().includes("wedding") ||
+        prefs.description.toLowerCase().includes("marriage"))
+    ) {
+      occasionContext = "\nOccasion: Wedding";
+    } else {
+      occasionContext =
+        "\nOccasion: General gift giving (NOT birthday-specific unless explicitly mentioned)";
+    }
+
     let userPrompt =
-      "Please list premium gift suggestions based on the following preferences:";
+      "Please generate premium gift suggestions based on these specific criteria:";
 
     if (prefs.age) userPrompt += `\n- Recipient's age: ${prefs.age}`;
     if (prefs.gender) userPrompt += `\n- Gender: ${prefs.gender}`;
@@ -519,61 +402,75 @@ app.post("/api/generate-gift", async (req, res) => {
       userPrompt += `\n- Relationship to recipient: ${prefs.relationship}`;
     if (prefs.category)
       userPrompt += `\n- Preferred category: ${prefs.category}`;
-    if (prefs.budget) userPrompt += `\n- Desired budget range: ${prefs.budget}`;
+    if (prefs.budget) userPrompt += `\n- Budget range: ${prefs.budget} SAR`;
     if (prefs.interests)
-      userPrompt += `\n- Personal interests, preferences, or style notes: ${prefs.interests}`;
+      userPrompt += `\n- Personal interests/preferences: ${prefs.interests}`;
 
-    if (prefs.description)
-      userPrompt += `\n\nAdditional context or special occasion: ${prefs.description}`;
+    userPrompt += occasionContext;
+
+    if (prefs.description) {
+      userPrompt += `\n\nAdditional context: ${prefs.description}`;
+    }
 
     userPrompt +=
-      "\n\nAll suggestions should reflect refined taste and cultural relevance for a Saudi Arabian audience. Stick to the specified categories only, and include elegant, thoughtful modifiers when appropriate.";
+      "\n\nIMPORTANT: Focus ONLY on the specified preferences. Do NOT include birthday-related items unless the occasion is explicitly mentioned as a birthday. Generate diverse, high-quality recommendations that match the exact criteria provided.";
 
     const sys = {
       role: "system",
       content: `
-      You are Hadai.ai, an elite gift assistant specializing in luxury and culturally relevant gifts for users in Saudi Arabia.
-      
-      Your task is to generate 6-8 diverse, tasteful gift recommendations using only the following fixed categories:
-      Makeup, Perfume, Care, Health & Nutrition, Devices, Premium, Nails, Gifts, Lenses, Home Scents, Food & Drink.
-      
-      For each gift, determine the appropriate store using these STRICT rules:
-      
-      - JARIR: ONLY for technology, electronics, devices, gadgets, computers, gaming equipment, books
-      - NICEONE: ONLY for makeup, skincare products, beauty tools, nail products, contact lenses, perfumes and fragrances
-      - MAHALY: for EVERYTHING ELSE including:
-        * Health & nutrition products (supplements, organic foods, coffee, tea, etc.)
-        * Food & Drink items (coffee beans, gourmet foods, beverages, etc.)
-        * Home scents and candles
-        * General gifts and gift sets
-        * Care products that aren't specifically skincare/beauty (e.g. toothpaste, shampoo, etc.)
-        * Premium items that don't fit the above categories (e.g. luxury watches, jewelry, etc.)
-        * Any item with coffee, food, home goods, etc.
-      
-      IMPORTANT: 
-      - Generate diverse recommendations from DIFFERENT sources if seen fit (mix of JARIR, NICEONE, and MAHALY)
-      - Vary the categories and price points to provide comprehensive options based on user input
-      - When in doubt, choose MAHALY as the default store
-      
-      Each item must include:
-      - "category" (one of the above)
-      - "store" (either "JARIR", "NICEONE", or "MAHALY")
-      - "search_context" (specific search terms that will help find the perfect product)
-      - Optional "modifier" (1–4 elegant words like "oud-infused perfume" or "gaming headset")
-      
-      Return in this exact JSON format:
+      You are Hadai.ai, a precision gift recommendation specialist for Saudi Arabian customers who creates EXACTLY what users request.
+
+      **CRITICAL RULES:**
+      1. NEVER suggest birthday-specific items (cakes, candles, party supplies) unless explicitly requested for a birthday
+      2. Focus ONLY on the user's specified preferences and criteria
+      3. Generate 6-8 diverse recommendations using DIFFERENT categories when appropriate
+      4. Create SPECIFIC, targeted search terms that will find exact products
+      5. ONLY recommend products that are popular or trending in their respective stores:
+         - For JARIR: Only suggest products that are marked as 'Trending Now' or 'Best Sellers'. If no such product is found, do NOT suggest a generic fallback—try a different category or say 'No suitable product found'.
+         - For NICEONE: Prefer products that are popular, trending, or best sellers if possible.
+
+      **FIXED CATEGORIES** (use only these):
+      Makeup, Perfume, Care, Health & Nutrition, Devices, Premium, Nails, Gifts, Lenses, Home Scents, Food & Drink
+
+      **STORE ROUTING RULES** (STRICTLY follow):
+      - JARIR: Electronics, devices, gaming, computers, smart gadgets, phones, tablets, tech accessories
+      - NICEONE: Makeup, beauty tools, nail products, skincare, cosmetics, contact lenses, fragrances
+
+      **SEARCH CONTEXT REQUIREMENTS:**
+      - Use 3-5 specific keywords that target the exact product type
+      - Include brand preferences if mentioned
+      - Avoid generic terms - be PRECISE
+      - Include quality indicators (premium, luxury, high-quality)
+      - Consider Saudi preferences and cultural relevance
+
+      **EXAMPLE OUTPUTS:**
+      For tech-interested person: "wireless bluetooth gaming headphones premium" not just "headphones"
+      For beauty lover: "luxury matte lipstick palette set" not just "makeup"
+
+      Return in this EXACT JSON format:
       {
         "gifts": [
-          { "category": "Perfume", "store": "MAHALY", "search_context": "luxury oud perfume gift set", "modifier": "luxury oud blend" },
-          { "category": "Devices", "store": "JARIR", "search_context": "wireless gaming headset bluetooth", "modifier": "gaming headset" },
-          { "category": "Makeup", "store": "NICEONE", "search_context": "premium makeup palette eyeshadow", "modifier": "eyeshadow palette" },
-          { "category": "Food & Drink", "store": "MAHALY", "search_context": "gourmet coffee beans arabica", "modifier": "artisan coffee" },
-          { "category": "Home Scents", "store": "MAHALY", "search_context": "luxury candle home fragrance", "modifier": "scented candle" },
-          { "category": "Care", "store": "NICEONE", "search_context": "skincare set moisturizer serum", "modifier": "skincare set" }
+          { 
+            "category": "Devices", 
+            "store": "JARIR", 
+            "search_context": "wireless bluetooth gaming headphones rgb lighting", 
+            "modifier": "gaming headset" 
+          },
+          { 
+            "category": "Makeup", 
+            "store": "NICEONE", 
+            "search_context": "luxury matte lipstick palette long-lasting", 
+            "modifier": "lipstick collection" 
+          }
         ]
       }
-      
-      Ensure all gifts align with high-end expectations and Saudi cultural preferences.
+
+      **QUALITY ASSURANCE:**
+      - Each recommendation must be distinctly different
+      - Vary price points within the specified budget
+      - Ensure cultural appropriateness for Saudi market
+      - Match the user's exact relationship and age criteria
+      - NO generic suggestions - everything must be specific, targeted, and popular/trending
       `,
     };
 
@@ -582,61 +479,69 @@ app.post("/api/generate-gift", async (req, res) => {
       content: userPrompt,
     };
 
-    console.log("Sending to OpenAI:", {
-      system: sys.content,
+    console.log("Sending enhanced prompt to OpenAI:", {
+      system: sys.content.substring(0, 200) + "...",
       user: userPrompt,
     });
 
-    console.log(" Making OpenAI API call...");
+    console.log("Making OpenAI API call with GPT-4o-mini...");
 
     const chat = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [sys, usr],
+      temperature: 0.7, // Slightly reduce randomness for more consistent results
+      max_tokens: 2000, // Ensure sufficient space for detailed responses
     });
 
     const responseContent = chat.choices[0].message.content;
-    console.log(" RAW OpenAI response:", responseContent);
-    console.log("OpenAI response type:", typeof responseContent);
-    console.log("OpenAI response length:", responseContent.length);
+    console.log("RAW OpenAI response:", responseContent);
 
-    // Parse the JSON response
+    // Parse the JSON response with enhanced error handling
     let gifts;
     try {
       console.log("🔍 Attempting to parse JSON...");
       const jsonResponse = JSON.parse(responseContent);
       gifts = jsonResponse.gifts || [];
-      console.log(" Successfully parsed JSON. Gifts count:", gifts.length);
+      console.log("✅ Successfully parsed JSON. Gifts count:", gifts.length);
       console.log("Parsed gifts:", JSON.stringify(gifts, null, 2));
     } catch (parseErr) {
-      console.error(" Error parsing OpenAI response:", parseErr);
+      console.error("❌ Error parsing OpenAI response:", parseErr);
       console.log("🔍 Attempting to extract JSON from response");
 
-      // Fallback: Try to extract JSON from the response text
+      // Enhanced JSON extraction
       const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        console.log("🔍 Found JSON match:", jsonMatch[0]);
+        console.log(
+          "🔍 Found JSON match:",
+          jsonMatch[0].substring(0, 200) + "..."
+        );
         try {
           const jsonResponse = JSON.parse(jsonMatch[0]);
           gifts = jsonResponse.gifts || [];
           console.log(
-            "Successfully extracted and parsed JSON. Gifts count:",
+            "✅ Successfully extracted and parsed JSON. Gifts count:",
             gifts.length
           );
-          console.log("Extracted gifts:", JSON.stringify(gifts, null, 2));
         } catch (extractErr) {
-          console.error(" Error extracting JSON:", extractErr);
+          console.error("❌ Error extracting JSON:", extractErr);
           throw new Error(
             "Could not parse gift suggestions from OpenAI response"
           );
         }
       } else {
-        console.error("No JSON found in response");
+        console.error("❌ No JSON found in response");
         throw new Error("Could not extract JSON from OpenAI response");
       }
     }
 
+    // Validate gift suggestions
+    if (!gifts || gifts.length === 0) {
+      throw new Error("No gift suggestions generated");
+    }
+
     if (!prefs.enrichWithProducts) return res.json({ gifts });
 
+    // Enhanced product enrichment with multiple products per recommendation
     const enriched = await Promise.all(
       gifts.map(async (g, index) => {
         const store = g.store ? g.store.toLowerCase() : "unknown";
@@ -649,7 +554,7 @@ app.post("/api/generate-gift", async (req, res) => {
               search: query,
               sort: "most_popular",
               page: 1,
-              limit: 5,
+              limit: 8, // Increased from 5 to show more options
               first: false,
             };
 
@@ -659,98 +564,40 @@ app.post("/api/generate-gift", async (req, res) => {
             });
 
             const products = extractProducts(response);
+            console.log(
+              `🛍️ NiceOne found ${products.length} products for "${query}"`
+            );
+
             return {
               ...g,
-              product: products[0] || null,
+              products: products.slice(0, 3), // Return top 3 products
+              product: products[0] || null, // Keep primary product for backward compatibility
               source: "niceone",
               searchQuery: query,
               recommendation_id: `niceone_${index}`,
             };
           } else if (store === "jarir") {
             const products = await searchJarir(query);
+            console.log(
+              `🛍️ Jarir found ${products.length} products for "${query}"`
+            );
+
             return {
               ...g,
+              products: products.slice(0, 3), // Return top 3 products
               product: products[0] || null,
               source: "jarir",
               searchQuery: query,
               recommendation_id: `jarir_${index}`,
             };
-          } else if (store === "mahaly") {
-            const products = await searchMahaly(query);
-
-            // If no results with specific query, try broader terms based on category
-            let fallbackProducts = [];
-            let usedQuery = query;
-            if (products.length === 0) {
-              console.log(
-                `No Mahaly results for "${query}", trying fallback searches...`
-              );
-
-              const fallbackQueries = [];
-              if (g.category === "Food & Drink") {
-                fallbackQueries.push(
-                  "coffee_beans",
-                  "coffee",
-                  "tea",
-                  "chocolate",
-                  "honey"
-                );
-              } else if (g.category === "Home Scents") {
-                fallbackQueries.push(
-                  "candle",
-                  "incense",
-                  "home_fragrance",
-                  "scent"
-                );
-              } else if (g.category === "Gifts") {
-                fallbackQueries.push("gift_set", "luxury", "premium", "gift");
-              } else if (g.category === "Perfume") {
-                fallbackQueries.push("perfume", "fragrance", "عطر");
-              } else if (g.category === "Care") {
-                fallbackQueries.push("skin_care", "body_care", "care");
-              } else if (g.category === "Health & Nutrition") {
-                fallbackQueries.push(
-                  "vitamin",
-                  "supplement",
-                  "health",
-                  "nutrition"
-                );
-              }
-
-              for (const fallbackQuery of fallbackQueries) {
-                const fallbackResults = await searchMahaly(fallbackQuery);
-                if (fallbackResults.length > 0) {
-                  fallbackProducts = fallbackResults;
-                  usedQuery = fallbackQuery;
-                  console.log(
-                    `Found ${fallbackResults.length} Mahaly results with fallback query: "${fallbackQuery}"`
-                  );
-                  break;
-                }
-              }
-            }
-
-            const finalProducts =
-              products.length > 0 ? products : fallbackProducts;
-
-            return {
-              ...g,
-              product: finalProducts[0] || null,
-              source: "mahaly",
-              searchQuery: usedQuery,
-              recommendation_id: `mahaly_${index}`,
-              ...(fallbackProducts.length > 0 && { usedFallback: true }),
-            };
           } else {
-            // Default fallback to Mahaly for unknown stores
-            console.log(
-              `Unknown store "${store}", falling back to Mahaly for query: ${query}`
-            );
-            const products = await searchMahaly(query);
+            // Fallback to Jarir for unknown stores
+            const products = await searchJarir(query);
             return {
               ...g,
+              products: products.slice(0, 3),
               product: products[0] || null,
-              source: "mahaly",
+              source: "jarir",
               searchQuery: query,
               recommendation_id: `fallback_${index}`,
               fallback: true,
@@ -758,11 +605,12 @@ app.post("/api/generate-gift", async (req, res) => {
           }
         } catch (err) {
           console.error(
-            `Error enriching gift (${store}) ${query}:`,
+            `❌ Error enriching gift (${store}) ${query}:`,
             err.message
           );
           return {
             ...g,
+            products: [],
             product: null,
             source: store,
             searchQuery: query,
@@ -773,9 +621,17 @@ app.post("/api/generate-gift", async (req, res) => {
       })
     );
 
+    // Log enrichment results
+    const successCount = enriched.filter(
+      (g) => g.product || (g.products && g.products.length > 0)
+    ).length;
+    console.log(
+      `📊 Enrichment Results: ${successCount}/${enriched.length} recommendations have products`
+    );
+
     res.json({ gifts: enriched });
   } catch (err) {
-    console.error("/api/generate-gift error:", err.stack || err);
+    console.error("❌ /api/generate-gift error:", err.stack || err);
     res.status(500).json({
       error: err.message,
       stack: err.stack,
