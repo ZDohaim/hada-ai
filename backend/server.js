@@ -156,14 +156,18 @@ const searchJarir = async (query, retries = 2) => {
       const results = res.data.result || [];
       // Filter for 'Trending Now' or 'Best Sellers' tags if available
       const popularTags = ["Trending Now", "Best Sellers"];
-      const filteredResults = results.filter((item) => {
+      let filteredResults = results.filter((item) => {
         if (!item.producttag_data) return false;
         return item.producttag_data.some((tag) =>
           popularTags.includes(tag.label)
         );
       });
+      if (filteredResults.length === 0) {
+        // Fallback: return all products if no trending/best sellers found
+        filteredResults = results;
+      }
       console.log(
-        `✓ Jarir API: ${filteredResults.length} popular/trending results for "${query}"`
+        `✓ Jarir API: ${filteredResults.length} results for "${query}"`
       );
 
       return filteredResults.map((item) => ({
@@ -547,6 +551,10 @@ app.post("/api/generate-gift", async (req, res) => {
         const store = g.store ? g.store.toLowerCase() : "unknown";
         const query = g.search_context || g.modifier || g.category;
 
+        console.log(
+          `🔍 Processing gift ${index}: store="${store}", query="${query}"`
+        );
+
         try {
           if (store === "niceone") {
             const params = {
@@ -577,20 +585,78 @@ app.post("/api/generate-gift", async (req, res) => {
               recommendation_id: `niceone_${index}`,
             };
           } else if (store === "jarir") {
-            const products = await searchJarir(query);
-            console.log(
-              `🛍️ Jarir found ${products.length} products for "${query}"`
-            );
-
+            let jarirQuery = query;
+            let fallbackQuery = null;
+            if (g.category) {
+              const cat = g.category.toLowerCase();
+              if (cat === "books") {
+                // Use full title, fallback to first 3 words
+                jarirQuery = query;
+                fallbackQuery = jarirQuery.split(" ").slice(0, 3).join(" ");
+                console.log(
+                  `🔍 [Books] Jarir query: "${jarirQuery}", fallback: "${fallbackQuery}"`
+                );
+              } else if (cat === "devices" || cat === "electronics") {
+                // Use full context, fallback to first 3 words
+                jarirQuery = query;
+                fallbackQuery = jarirQuery.split(" ").slice(0, 3).join(" ");
+                console.log(
+                  `🔍 [Electronics] Jarir query: "${jarirQuery}", fallback: "${fallbackQuery}"`
+                );
+              } else if (cat === "games") {
+                // Use full context, fallback to 'game' + main keyword
+                jarirQuery = query;
+                const mainKeyword = jarirQuery.split(" ")[0];
+                fallbackQuery = `game ${mainKeyword}`;
+                console.log(
+                  `🔍 [Games] Jarir query: "${jarirQuery}", fallback: "${fallbackQuery}"`
+                );
+              } else if (cat === "office supply" || cat === "office supplies") {
+                // Use full context, fallback to category + main keyword
+                jarirQuery = query;
+                const mainKeyword = jarirQuery.split(" ")[0];
+                fallbackQuery = `office ${mainKeyword}`;
+                console.log(
+                  `🔍 [Office Supply] Jarir query: "${jarirQuery}", fallback: "${fallbackQuery}"`
+                );
+              } else {
+                // Default: use full context, fallback to first 2 words
+                jarirQuery = query;
+                fallbackQuery = jarirQuery.split(" ").slice(0, 2).join(" ");
+                console.log(
+                  `🔍 [Default] Jarir query: "${jarirQuery}", fallback: "${fallbackQuery}"`
+                );
+              }
+            }
+            console.log(`🔍 Calling Jarir API for query: "${jarirQuery}"`);
+            let products = await searchJarir(jarirQuery);
+            // Fallback if no results and fallbackQuery exists
+            if (products.length === 0 && fallbackQuery) {
+              console.log(`🔍 Fallback Jarir query: "${fallbackQuery}"`);
+              const fallbackProducts = await searchJarir(fallbackQuery);
+              if (fallbackProducts.length > 0) {
+                return {
+                  ...g,
+                  products: fallbackProducts.slice(0, 3),
+                  product: fallbackProducts[0] || null,
+                  source: "jarir",
+                  searchQuery: fallbackQuery,
+                  recommendation_id: `jarir_${index}_fallback`,
+                };
+              }
+            }
             return {
               ...g,
-              products: products.slice(0, 3), // Return top 3 products
+              products: products.slice(0, 3),
               product: products[0] || null,
               source: "jarir",
-              searchQuery: query,
+              searchQuery: jarirQuery,
               recommendation_id: `jarir_${index}`,
             };
           } else {
+            console.log(
+              `🔍 Unknown store "${store}", falling back to Jarir for query: "${query}"`
+            );
             // Fallback to Jarir for unknown stores
             const products = await searchJarir(query);
             return {
