@@ -100,6 +100,77 @@ const getJarirHeaders = () => ({
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
 });
 
+// --- Floward Algolia client ---
+const algoliaAppId = "Q085HQ2LUQ";
+const algoliaSearchKey = process.env.FLOWARD_ALGOLIA_SEARCH_KEY || "a36327f4aec9eec775af628df0f659ab"; // search only
+const ALG_AGENT = encodeURIComponent("Algolia for JavaScript (4.17.0); Browser (lite); instantsearch.js (4.56.9); react (18.2.0); react-instantsearch (7.0.1); react-instantsearch-core (7.0.1); next.js (13.4.12); JS Helper (3.14.0)");
+const algoliaEndpoint = `https://${algoliaAppId.toLowerCase()}-1.algolianet.com/1/indexes/*/queries?x-algolia-agent=${ALG_AGENT}&x-algolia-api-key=${algoliaSearchKey}&x-algolia-application-id=${algoliaAppId}`;
+
+const flowardFacets = [
+  "Category",
+  "attributes.balloons.nameEn",
+  "attributes.brand.nameEn",
+  "attributes.bundleType.nameEn",
+  "attributes.color.nameEn",
+  "attributes.flavor.nameEn",
+  "attributes.flower.nameEn",
+  "attributes.gender.nameEn",
+  "attributes.jewelry-material.nameEn",
+  "attributes.jewelry-type.nameEn",
+  "attributes.packaging.nameEn",
+  "attributes.perfume-type.nameEn",
+  "attributes.plant-type.nameEn",
+  "attributes.serving-size.nameEn",
+  "attributes.size-fragrances.nameEn",
+  "attributes.voucher-type.nameEn",
+  "attributes.watch-strap.nameEn",
+  "attributes.watch-waterproof.nameEn",
+  "attributes.watches-style.nameEn",
+  "categories.categoryOccasion.nameEn",
+  "categories.giftByRecipient.nameEn",
+  "hierarchicalCategories.lvl0",
+  "productAvailability.2.priceWithVat",
+  "vasFilter"
+];
+
+function buildFlowardFilters(p) {
+  const f = [];
+  f.push("productAvailability.2.listed=1");
+  f.push("NOT productAvailability.2.isPickAndPack=1");
+  f.push("NOT type=4");
+
+  if (p.mustBeInStock && p.allowPreorder) f.push("(productAvailability.2.availability>0 OR productAvailability.2.enablePreOrder=1)");
+  else if (p.mustBeInStock) f.push("productAvailability.2.availability>0");
+  else if (p.allowPreorder) f.push("productAvailability.2.enablePreOrder=1");
+
+  if (Number.isFinite(p.minPrice)) f.push(`productAvailability.2.priceWithVat>=${p.minPrice}`);
+  if (Number.isFinite(p.maxPrice)) f.push(`productAvailability.2.priceWithVat<=${p.maxPrice}`);
+
+  if (p.recipient?.length) f.push("(" + p.recipient.map(v => `categories.giftByRecipient.nameEn:"${v}"`).join(" OR ") + ")");
+  if (p.occasion?.length) f.push("(" + p.occasion.map(v => `categories.categoryOccasion.nameEn:"${v}"`).join(" OR ") + ")");
+  if (p.category?.length) f.push("(" + p.category.map(v => `hierarchicalCategories.lvl0:"${v}"`).join(" OR ") + ")");
+  if (p.brand?.length) f.push("(" + p.brand.map(v => `attributes.brand.nameEn:"${v}"`).join(" OR ") + ")");
+  if (p.color?.length) f.push("(" + p.color.map(v => `attributes.color.nameEn:"${v}"`).join(" OR ") + ")");
+
+  return f.join(" AND ");
+}
+
+function buildFlowardParams(p) {
+  const qp = new URLSearchParams();
+  qp.set("query", p.query ?? "");
+  qp.set("hitsPerPage", String(p.hitsPerPage ?? 50)); // Increased from 18 to 50
+  qp.set("page", String(p.page ?? 0));
+  qp.set("clickAnalytics", "true");
+  qp.set("getRankingInfo", "true");
+  qp.set("highlightPreTag", "__ais-highlight__");
+  qp.set("highlightPostTag", "__/ais-highlight__");
+  qp.set("queryLanguages", JSON.stringify(["en","ar"]));
+  qp.set("maxValuesPerFacet", "1000000");
+  qp.set("facets", JSON.stringify(flowardFacets));
+  qp.set("filters", buildFlowardFilters(p));
+  return qp.toString();
+}
+
 const pruneEmpty = (obj) => {
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -117,16 +188,40 @@ const extractProducts = (res) => {
   );
 };
 
+async function searchFloward(prefs) {
+  const body = {
+    requests: [
+      {
+        indexName: "product_KSA",
+        params: buildFlowardParams(prefs)
+      }
+    ]
+  };
+  const r = await axios.post(algoliaEndpoint, body, {
+    headers: { "content-type": "application/json", origin: "https://floward.com", referer: "https://floward.com/" },
+    timeout: 15000
+  });
+  const hits = r.data?.results?.[0]?.hits ?? [];
+  return hits.map(h => ({
+    title: h.nameEn || h.name || h.title || "Product",
+    price: h.productAvailability?.[2]?.priceWithVat ?? null,
+    image: h.imageUrl || h.image || h.thumbnail || null,
+    link: h.url || h.slug || null,
+    brand: h.attributes?.brand?.nameEn || null,
+    id: h.objectID || h.id || null,
+  }));
+}
+
 // --- PATCH: Update Jarir search for popularity and trending ---
 const searchJarir = async (query, retries = 2) => {
-  // Use popularity sort (sort-priority) instead of default relevance
+  // Enhanced Jarir search with 50 results and relevance sorting
   const params = {
     autoComplete: true,
-    typeOfSuggestions: "cms|category",
-    noOfResults: 12,
+    typeOfSuggestions: "cms|category", 
+    noOfResults: 50, // Increased from 12 to 50
     noOfResultsAC: 5,
     enablePartialSearch: false,
-    sortOrder: "priority", // Use popularity sort
+    sortOrder: "rel", // Use relevance sort for better accuracy
     showOutOfStockProducts: true,
     paginationStartsFrom: 0,
     visibility: "search",
@@ -139,13 +234,14 @@ const searchJarir = async (query, retries = 2) => {
     ticket: "klevu-16370647733274933",
     sv: "2.3.18",
     term: query,
+    filterResults: "", // Add empty filterResults parameter
     klevu_filterLimit: 50,
   };
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       console.log(
-        `→ Jarir API attempt ${attempt + 1} for: "${query}" (popularity sort)`
+        `→ Jarir API attempt ${attempt + 1} for: "${query}" (relevance sort, 50 results)`
       );
 
       const res = await jarirApi.get("", {
@@ -323,6 +419,17 @@ app.get("/api/jarir/search", async (req, res) => {
   }
 });
 
+app.post("/api/floward/search", async (req, res) => {
+  try {
+    const prefs = req.body || {};
+    const products = await searchFloward(prefs);
+    res.json({ products });
+  } catch (err) {
+    console.error("Floward Algolia error:", err.response?.data || err.message);
+    res.status(500).json({ error: "Floward search failed", details: err.response?.data || err.message });
+  }
+});
+
 app.get("/api/jarir/test", async (req, res) => {
   try {
     const products = await searchJarir("laptop");
@@ -436,20 +543,52 @@ app.post("/api/generate-gift", async (req, res) => {
       **FIXED CATEGORIES** (use only these):
       Makeup, Perfume, Care, Health & Nutrition, Devices, Premium, Nails, Gifts, Lenses, Home Scents, Food & Drink
 
-      **STORE ROUTING RULES** (STRICTLY follow):
-      - JARIR: Electronics, devices, gaming, computers, smart gadgets, phones, tablets, tech accessories
-      - NICEONE: Makeup, beauty tools, nail products, skincare, cosmetics, contact lenses, fragrances
+      **STORE ROUTING RULES** (STRICTLY follow based on BUDGET, OCCASION & RELATIONSHIP):
+      
+      **FLOWARD** (Premium/Luxury - 300+ SAR typically):
+      - Products: Premium flowers, luxury flower+gift bundles, high-end perfumes, jewelry, luxury watches, premium chocolates
+      - Best for: Romantic occasions (anniversaries, Valentine's), formal events, close relationships (spouse, parents), important celebrations
+      - Budget: Higher budget gifts (300+ SAR), when quality and presentation matter most
+      - Cultural context: Traditional Saudi formal gift-giving, impressive presents for VIPs
+      
+      **JARIR** (Practical/Mid-range - 100-500 SAR typically):  
+      - Products: Books, electronics, gaming, computers, tech accessories, office/school supplies, educational items
+      - Best for: Practical occasions (graduation, new job, back-to-school), professional relationships, tech enthusiasts
+      - Budget: Mid-range budget (100-500 SAR), practical value-focused gifts
+      - Cultural context: Educational advancement, professional development, practical needs
+      
+      **NICEONE** (Budget-friendly - 50-200 SAR typically):
+      - Products: Makeup, beauty tools, skincare, cosmetics, contact lenses, affordable fragrances, nail products  
+      - Best for: Casual occasions, younger recipients, budget-conscious gifting, everyday beauty needs
+      - Budget: Lower budget (50-200 SAR), frequent/casual gifting
+      - Cultural context: Young women, students, casual friendships, self-care gifts
 
       **SEARCH CONTEXT REQUIREMENTS:**
       - Use 3-5 specific keywords that target the exact product type
       - Include brand preferences if mentioned
       - Avoid generic terms - be PRECISE
-      - Include quality indicators (premium, luxury, high-quality)
-      - Consider Saudi preferences and cultural relevance
+      
+      **Store-specific search indicators:**
+      - FLOWARD: Include "premium", "luxury", "elegant", "boutique", "exclusive", "high-quality"
+      - JARIR: Include "bestseller", "popular", "trending", "latest", "professional", "advanced"  
+      - NICEONE: Include "affordable", "popular", "trendy", "everyday", "budget-friendly"
+      
+      **Cultural relevance for Saudi market:**
+      - Consider modesty and cultural appropriateness
+      - Prefer internationally recognized brands
+      - Account for climate (long-lasting, heat-resistant products)
+      - Include Arabic preferences where applicable
+
+      **DECISION MATRIX - Choose stores based on:**
+      1. BUDGET: High budget (300+ SAR) → Consider Floward first, Mid (100-500) → Jarir, Low (<200) → NiceOne  
+      2. OCCASION: Romantic/Formal → Floward, Practical/Educational → Jarir, Casual → NiceOne
+      3. RELATIONSHIP: Close personal → Floward (if budget allows), Professional → Jarir, Casual → NiceOne
+      4. PRODUCT TYPE: Flowers/luxury bundles → Floward, Tech/books → Jarir, Beauty → NiceOne
 
       **EXAMPLE OUTPUTS:**
-      For tech-interested person: "wireless bluetooth gaming headphones premium" not just "headphones"
-      For beauty lover: "luxury matte lipstick palette set" not just "makeup"
+      High budget + romantic + wife → FLOWARD: "premium luxury flower bouquet jewelry bundle elegant"
+      Mid budget + tech enthusiast + friend → JARIR: "wireless gaming headphones bestseller rgb advanced"  
+      Low budget + beauty lover + casual → NICEONE: "affordable matte lipstick palette trendy long-lasting"
 
       Return in this EXACT JSON format:
       {
@@ -457,24 +596,33 @@ app.post("/api/generate-gift", async (req, res) => {
           { 
             "category": "Devices", 
             "store": "JARIR", 
-            "search_context": "wireless bluetooth gaming headphones rgb lighting", 
+            "search_context": "wireless gaming headphones bestseller rgb advanced", 
             "modifier": "gaming headset" 
           },
           { 
             "category": "Makeup", 
             "store": "NICEONE", 
-            "search_context": "luxury matte lipstick palette long-lasting", 
+            "search_context": "affordable matte lipstick palette trendy long-lasting", 
             "modifier": "lipstick collection" 
+          },
+          { 
+            "category": "Gifts", 
+            "store": "FLOWARD", 
+            "search_context": "premium luxury flower bouquet roses elegant exclusive", 
+            "modifier": "flower arrangement" 
           }
         ]
       }
 
       **QUALITY ASSURANCE:**
       - Each recommendation must be distinctly different
-      - Vary price points within the specified budget
+      - INTELLIGENTLY match store to budget, occasion, and relationship importance
+      - Vary price points within the specified budget using appropriate stores
       - Ensure cultural appropriateness for Saudi market
       - Match the user's exact relationship and age criteria
+      - Use store-specific quality indicators in search contexts
       - NO generic suggestions - everything must be specific, targeted, and popular/trending
+      - ALWAYS justify store choice based on the decision matrix above
       `,
     };
 
@@ -562,7 +710,7 @@ app.post("/api/generate-gift", async (req, res) => {
               search: query,
               sort: "most_popular",
               page: 1,
-              limit: 8, // Increased from 5 to show more options
+              limit: 50, // Increased from 8 to 50 for more options
               first: false,
             };
 
@@ -578,7 +726,7 @@ app.post("/api/generate-gift", async (req, res) => {
 
             return {
               ...g,
-              products: products.slice(0, 3), // Return top 3 products
+              products: products.slice(0, 50), // Return top 50 products
               product: products[0] || null, // Keep primary product for backward compatibility
               source: "niceone",
               searchQuery: query,
@@ -637,7 +785,7 @@ app.post("/api/generate-gift", async (req, res) => {
               if (fallbackProducts.length > 0) {
                 return {
                   ...g,
-                  products: fallbackProducts.slice(0, 3),
+                  products: fallbackProducts.slice(0, 50),
                   product: fallbackProducts[0] || null,
                   source: "jarir",
                   searchQuery: fallbackQuery,
@@ -647,11 +795,35 @@ app.post("/api/generate-gift", async (req, res) => {
             }
             return {
               ...g,
-              products: products.slice(0, 3),
+              products: products.slice(0, 50),
               product: products[0] || null,
               source: "jarir",
               searchQuery: jarirQuery,
               recommendation_id: `jarir_${index}`,
+            };
+          } else if (store === "floward") {
+            const params = {
+              query: g.search_context || g.modifier || g.category || "",
+              recipient: g.recipient ? [g.recipient].flat() : [],
+              occasion: g.occasion ? [g.occasion].flat() : [],
+              category: g.category ? [g.category].flat() : [],
+              brand: g.brand ? [g.brand].flat() : [],
+              color: g.color ? [g.color].flat() : [],
+              minPrice: prefs.minPrice ?? undefined,
+              maxPrice: prefs.maxPrice ?? undefined,
+              mustBeInStock: true,
+              allowPreorder: true,
+              hitsPerPage: 50,
+              page: 0
+            };
+            const products = await searchFloward(params);
+            return {
+              ...g,
+              products: products.slice(0, 50),
+              product: products[0] || null,
+              source: "floward",
+              searchQuery: params.query,
+              recommendation_id: `floward_${index}`
             };
           } else {
             console.log(
@@ -661,7 +833,7 @@ app.post("/api/generate-gift", async (req, res) => {
             const products = await searchJarir(query);
             return {
               ...g,
-              products: products.slice(0, 3),
+              products: products.slice(0, 50),
               product: products[0] || null,
               source: "jarir",
               searchQuery: query,
