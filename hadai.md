@@ -25,7 +25,7 @@
 
 ### 2. Multi-Store Product Search
 
-- Searches across 3 major Saudi e-commerce platforms (Jarir, NiceOne, Mahaly)
+- Searches across 3 major Saudi e-commerce platforms (Jarir, NiceOne, Floward)
 - Automatic store routing based on product category
 - Each recommendation uses optimized search context for better product matching
 - Improved image handling with source-specific optimization (especially for Jarir)
@@ -80,12 +80,31 @@ npm start
 
 - `POST /api/generate-gift` - Generate gift suggestions with product enrichment
 - `GET /api/niceone/search` - Search NiceOne products
+- `POST /api/floward/search` - Search Floward (Algolia) with recipient/occasion/category filters
 - `GET /api/version-check` - System status check
 
 ### Store-Specific Endpoints
 
 - `GET /api/niceone/test` - Test NiceOne connection
 - `GET /api/niceone/check-connection` - Connection health check
+
+- `POST /api/floward/search` - Body params:
+  ```json
+  {
+    "query": "premium roses luxury bouquet",
+    "recipient": ["Wife", "Mother"],
+    "occasion": ["Anniversary", "Valentine's Day"],
+    "category": ["flowers"],
+    "brand": [],
+    "color": ["red"],
+    "minPrice": 300,
+    "maxPrice": 1500,
+    "mustBeInStock": true,
+    "allowPreorder": true,
+    "hitsPerPage": 50,
+    "page": 0
+  }
+  ```
 
 ## 📈 Analytics & Tracking
 
@@ -110,6 +129,7 @@ npm start
 - **Multiple Product Options**: Now returns 3 product options per recommendation for better choice variety
 - **Enhanced Search Terms**: More specific and targeted search contexts for better product matching
 - **Improved Store Routing**: Optimized category-to-store mapping for more accurate product placement
+  - Explicit prioritization to include FLOWARD when budget ≥ 300 SAR, romantic/formal occasions, or close relationships
 - **Advanced Fallback System**: Category-specific fallback terms that maintain relevance instead of generic searches
 
 ### Technical Search Improvements

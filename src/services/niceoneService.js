@@ -35,22 +35,11 @@ export const searchProducts = async (q, options = {}) => {
     search: options.search,
   });
 
-  console.log("\u2192 Proxying to /niceone/search with:", params);
-  let resp = await niceoneApi.get("/niceone/search", { params });
-  let products = extractProducts(resp);
+  console.log("→ Proxying to /niceone/search with:", params);
+  const resp = await niceoneApi.get("/niceone/search", { params });
+  const products = extractProducts(resp);
 
-  if (options.search && products.length === 0) {
-    console.log("Fallback: retrying without modifier");
-    const fallback = pruneEmpty({
-      q,
-      sort: params.sort,
-      page: params.page,
-      limit: params.limit,
-    });
-    resp = await niceoneApi.get("/niceone/search", { params: fallback });
-    products = extractProducts(resp);
-  }
-
+  console.log(`✓ NiceOne service: ${products.length} products for "${q}"`);
   return { products };
 };
 

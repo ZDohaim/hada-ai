@@ -312,7 +312,7 @@ const GiftFlow = () => {
     "Fashion",
     "Home",
     "Books",
-    "Experiences",
+    "Flowers",
     "Food & Drink",
     "Fitness",
     "Beauty",
@@ -536,8 +536,20 @@ const GiftFlow = () => {
         await saveReminderData(results || []);
       }
     } catch (err) {
-      setError("Failed to generate gift suggestions. Please try again.");
       console.error("API error:", err);
+      
+      // Provide specific error messages based on the error type
+      if (err.message.includes("Database API not yet available")) {
+        setError("Our new recommendation system is being set up. Please try again in a few moments.");
+      } else if (err.message.includes("Network Error") || err.code === "ECONNREFUSED") {
+        setError("Unable to connect to our recommendation service. Please check your connection and try again.");
+      } else if (err.response?.status === 400) {
+        setError("Please check your preferences and try again with different criteria.");
+      } else if (err.response?.status === 500) {
+        setError("Our recommendation service is temporarily unavailable. Please try again later.");
+      } else {
+        setError("Failed to generate gift suggestions. Please try again with different preferences.");
+      }
     } finally {
       setLoading(false);
     }
@@ -649,16 +661,10 @@ const GiftFlow = () => {
   // Gift Card Component
   const GiftCard = ({ gift }) => {
     const [showFullDescription, setShowFullDescription] = useState(false);
-    const [selectedProductIndex, setSelectedProductIndex] = useState(0);
 
-    // Get all available products (new multiple products support)
-    const allProducts =
-      gift.products && gift.products.length > 0
-        ? gift.products
-        : [gift.product || gift];
-    const hasMultipleProducts = allProducts.length > 1;
-    const currentProduct =
-      allProducts[selectedProductIndex] || allProducts[0] || gift;
+    // Since we're now showing individual products as separate cards,
+    // we don't need the multiple products logic
+    const currentProduct = gift;
 
     const name =
       currentProduct.name ||
@@ -710,6 +716,7 @@ const GiftFlow = () => {
       if (productUrl) {
         if (productUrl.includes("niceone.sa")) return "niceone";
         if (productUrl.includes("jarir.com")) return "jarir";
+        if (productUrl.includes("floward.com")) return "floward";
       }
       return "unknown";
     };
@@ -793,39 +800,6 @@ const GiftFlow = () => {
         }`}
         style={{ borderColor: "#D4A373" }}
       >
-        {/* Product Selection Tabs - Only show if multiple products */}
-        {hasMultipleProducts && (
-          <div
-            className="border-b border-opacity-20"
-            style={{ borderColor: "#D4A373" }}
-          >
-            <div className="flex overflow-x-auto scrollbar-hide">
-              {allProducts.map((product, index) => (
-                <button
-                  key={index}
-                  onClick={() => setSelectedProductIndex(index)}
-                  className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-all duration-300 min-w-0 flex-shrink-0 ${
-                    selectedProductIndex === index
-                      ? "border-amber-400 text-amber-700 bg-amber-50"
-                      : "border-transparent text-gray-600 hover:text-amber-600 hover:bg-amber-25"
-                  }`}
-                >
-                  Option {index + 1}
-                  {product.price && (
-                    <span className="ml-2 text-xs opacity-75">
-                      {typeof product.price === "number"
-                        ? `${product.price} SAR`
-                        : product.price.toString().includes("SAR")
-                        ? product.price
-                        : `${product.price} SAR`}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="h-56 overflow-hidden relative">
           {imageUrl ? (
             <img
@@ -903,20 +877,6 @@ const GiftFlow = () => {
               </span>
             )}
           </div>
-          {/* Multiple products indicator */}
-          {hasMultipleProducts && (
-            <div className="absolute top-3 left-3">
-              <span
-                className="text-xs font-medium px-2 py-1 rounded-full shadow-lg"
-                style={{
-                  backgroundColor: "rgba(34, 197, 94, 0.9)",
-                  color: "white",
-                }}
-              >
-                {allProducts.length} Options
-              </span>
-            </div>
-          )}
           {/* Search context indicator for better understanding */}
           {gift.searchContext && (
             <div className="absolute bottom-3 left-3">
@@ -940,6 +900,23 @@ const GiftFlow = () => {
           >
             {name}
           </h3>
+
+          {/* Display error message if product search failed */}
+          {gift.errorMessage && (
+            <div 
+              className="mb-4 p-3 rounded-lg border"
+              style={{
+                backgroundColor: "#FFF3E0",
+                borderColor: "#FFB74D",
+                color: "#E65100"
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-lg">⚠️</span>
+                <p className="text-sm font-medium">{gift.errorMessage}</p>
+              </div>
+            </div>
+          )}
 
           {price && (
             <div className="flex items-center gap-3 mb-4">
@@ -1006,22 +983,9 @@ const GiftFlow = () => {
                 }}
                 onClick={handleProductClick}
               >
-                View Product{" "}
-                {hasMultipleProducts
-                  ? `(${selectedProductIndex + 1}/${allProducts.length})`
-                  : ""}
+                View Product
               </a>
             ) : null}
-
-            {/* Show all products link if multiple options */}
-            {hasMultipleProducts && (
-              <div className="text-center">
-                <span className="text-sm" style={{ color: "#8D6E63" }}>
-                  💡 Browse through the tabs above to see all{" "}
-                  {allProducts.length} options
-                </span>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -1309,43 +1273,93 @@ const GiftFlow = () => {
     }
 
     const curatedRecommendations = [];
+    const maxTotalProducts = 18; // Limit total cards to 18 for better UX
 
-    results.forEach((suggestion) => {
-      if (suggestion.product) {
+    // Handle new database API format vs legacy format
+    if (results.length > 0 && results[0].id && results[0].name) {
+      // New database API format - products are returned directly
+      results.slice(0, maxTotalProducts).forEach((product, index) => {
         curatedRecommendations.push({
-          ...suggestion.product,
-          category: suggestion.category,
-          modifier: suggestion.modifier,
-          source: suggestion.source,
-          searchQuery: suggestion.searchQuery,
-          recommendation_id: suggestion.recommendation_id,
-          searchContext: suggestion.search_context,
+          ...product,
+          // Map database fields to expected frontend fields
+          title: product.name,
+          image: product.image_url,
+          link: product.product_url,
+          recommendation_id: product.id || `db_${index}`,
+          searchContext: product.tags ? product.tags.join(' ') : '',
+          modifier: product.recommendation_reason || '',
+          // Database API provides direct product data
+          isPlaceholder: false,
         });
-      } else {
-        // Create a fallback gift card when product is null
-        curatedRecommendations.push({
-          name: suggestion.modifier
-            ? `${suggestion.category} ${suggestion.modifier}`
-            : suggestion.category,
-          category: suggestion.category,
-          modifier: suggestion.modifier,
-          source: suggestion.source || "unknown",
-          searchQuery: suggestion.searchQuery,
-          recommendation_id: suggestion.recommendation_id,
-          searchContext: suggestion.search_context,
-          description: suggestion.modifier
-            ? `${suggestion.modifier} from ${
-                suggestion.store || "our partners"
-              }`
-            : `${suggestion.category} suggestion from ${
-                suggestion.store || "our partners"
-              }`,
-          // Use a placeholder image based on category
-          image: null,
-          isPlaceholder: true,
-        });
+      });
+    } else {
+      // Legacy format - handle old API response structure
+      const maxProductsPerCategory = 3;
+      
+      results.forEach((suggestion, suggestionIndex) => {
+        // If suggestion has multiple products, create individual cards for each
+        if (suggestion.products && suggestion.products.length > 0) {
+          const productsToShow = suggestion.products.slice(
+            0,
+            maxProductsPerCategory
+          );
+
+          productsToShow.forEach((product, productIndex) => {
+            if (curatedRecommendations.length >= maxTotalProducts) return;
+
+            curatedRecommendations.push({
+              ...product,
+              category: suggestion.category,
+              modifier: suggestion.modifier,
+              source: suggestion.source,
+              searchQuery: suggestion.searchQuery,
+              recommendation_id: `${suggestion.recommendation_id}_${productIndex}`,
+              searchContext: suggestion.search_context,
+              originalSuggestionIndex: suggestionIndex,
+              productIndex: productIndex,
+            });
+          });
+        } else if (suggestion.product) {
+          // Single product case
+          if (curatedRecommendations.length < maxTotalProducts) {
+            curatedRecommendations.push({
+              ...suggestion.product,
+              category: suggestion.category,
+              modifier: suggestion.modifier,
+              source: suggestion.source,
+              searchQuery: suggestion.searchQuery,
+              recommendation_id: suggestion.recommendation_id,
+              searchContext: suggestion.search_context,
+            });
+          }
+        } else {
+          // Create a fallback gift card when product is null
+          if (curatedRecommendations.length < maxTotalProducts) {
+            curatedRecommendations.push({
+              name: suggestion.modifier
+                ? `${suggestion.category} ${suggestion.modifier}`
+                : suggestion.category,
+            category: suggestion.category,
+            modifier: suggestion.modifier,
+            source: suggestion.source || "unknown",
+            searchQuery: suggestion.searchQuery,
+            recommendation_id: suggestion.recommendation_id,
+            searchContext: suggestion.search_context,
+            description: suggestion.modifier
+              ? `${suggestion.modifier} from ${
+                  suggestion.store || "our partners"
+                }`
+              : `${suggestion.category} suggestion from ${
+                  suggestion.store || "our partners"
+                }`,
+            // Use a placeholder image based on category
+            image: null,
+            isPlaceholder: true,
+          });
+        }
       }
     });
+    }
 
     return (
       <div className="animate-fade-in-up">
@@ -1371,7 +1385,7 @@ const GiftFlow = () => {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {curatedRecommendations.map((gift, index) => (
             <GiftCard key={`${gift.recommendation_id || index}`} gift={gift} />
           ))}
