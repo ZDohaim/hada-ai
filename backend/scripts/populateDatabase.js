@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-require('dotenv').config({ path: '../.env' });
+require('dotenv').config({ path: './.env' });
 const { ingestStore, ingestAllStores, setupDatabase, SEARCH_TERMS } = require('../services/dataIngestionService');
 const { validateProductBatch, generateQualityReport } = require('../services/dataValidationService');
 

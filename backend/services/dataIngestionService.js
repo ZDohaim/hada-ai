@@ -89,8 +89,11 @@ const normalizeProductForDB = (product, store, category) => {
   );
 
   const normalizedDescription = product.description || product.shortDescription || normalizedName;
-  const normalizedImageUrl = product.image || product.imageUrl || product.thumbnail || null;
-  const normalizedProductUrl = product.link || product.url || product.productUrl || product.slug || null;
+  const normalizedImageUrl = product.image || product.imageUrl || product.thumbnail || product.thumb || null;
+  const normalizedProductUrl = product.link || product.url || product.productUrl || product.share_url || product.slug || null;
+
+  // Extract brand information
+  const brand = product.brand || product.brandName || product.attributes?.brand?.nameEn || null;
 
   // Extract tags from various fields
   const tags = [
@@ -103,41 +106,46 @@ const normalizeProductForDB = (product, store, category) => {
     ...(product.categories?.map(cat => cat.nameEn) || [])
   ].filter(Boolean);
 
+  // Create a unique source_id based on the product's original ID or URL
+  const sourceId = product.id || product.productId || product.slug || product.url || `${store}-${Date.now()}-${Math.random()}`;
+
   return {
     name: normalizedName,
     description: normalizedDescription,
     price_sar: normalizedPrice,
     image_url: normalizedImageUrl,
     product_url: normalizedProductUrl,
+    brand: brand,
     tags: [...new Set(tags)], // Remove duplicates
-    store_code: store,
-    category_code: category,
+    availability: 'in_stock', // Default availability
+    source_id: String(sourceId), // Ensure it's a string
     raw: product // Store original for debugging
   };
 };
 
-// Store-specific search terms based on existing routing logic
+// Store-specific search terms optimized for specialized categories and accuracy
 const SEARCH_TERMS = {
   floward: {
     gifts: ["roses", "bouquet", "luxury flowers", "premium arrangement", "anniversary flowers", "romantic bouquet"],
-    luxury: ["luxury gifts", "premium bundles", "elegant presents", "exclusive items"],
-    jewelry: ["jewelry", "premium accessories", "luxury watches", "elegant jewelry"],
-    premium: ["premium", "luxury", "exclusive", "elegant", "sophisticated"]
+    premium: ["luxury gifts", "premium bundles", "elegant presents", "exclusive items"],
+    fashion: ["jewelry", "premium accessories", "luxury watches", "elegant jewelry", "designer accessories"],
+    home_decor: ["luxury home items", "decorative pieces", "elegant vases", "home accessories"]
   },
   jarir: {
-    books: ["books", "bestsellers", "arabic books", "english books", "educational books"],
-    devices: ["laptop", "tablet", "smartphone", "electronics", "gaming", "tech gadgets"],
-    office: ["office supplies", "stationery", "notebooks", "pens", "desk accessories"],
-    gaming: ["gaming", "playstation", "xbox", "nintendo", "gaming accessories"],
-    tech: ["technology", "gadgets", "computers", "accessories", "mobile accessories"]
+    electronics: ["laptop", "tablet", "smartphone", "tech gadgets", "technology", "gadgets", "computers", "mobile accessories"],
+    books: ["books", "bestsellers", "arabic books", "english books", "educational books", "reference books"],
+    gaming: ["gaming", "playstation", "xbox", "nintendo", "gaming accessories", "controllers", "gaming headsets", "console games"],
+    office: ["office supplies", "stationery", "notebooks", "pens", "desk accessories", "office equipment", "planners"],
+    devices: ["tablets", "smartphones", "accessories", "chargers", "cases"]
   },
   niceone: {
     makeup: ["makeup", "cosmetics", "lipstick", "foundation", "eyeshadow", "mascara"],
     perfume: ["perfume", "fragrance", "cologne", "scent", "eau de parfum"],
     care: ["skincare", "moisturizer", "cleanser", "serum", "face care", "body care"],
-    "health-nutrition": ["vitamins", "supplements", "health", "nutrition", "wellness"],
+    fitness: ["vitamins", "supplements", "health", "nutrition", "wellness", "protein", "workout supplements"],
     nails: ["nail polish", "nail care", "manicure", "nail art", "nail accessories"],
-    lenses: ["contact lenses", "colored lenses", "daily lenses", "monthly lenses"]
+    lenses: ["contact lenses", "colored lenses", "daily lenses", "monthly lenses"],
+    fashion: ["accessories", "beauty tools", "personal accessories"]
   }
 };
 

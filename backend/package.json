@@ -9,7 +9,8 @@
     "populate-db": "node scripts/populateDatabase.js",
     "setup-db": "node scripts/populateDatabase.js setup",
     "ingest-all": "node scripts/populateDatabase.js ingest-all",
-    "dry-run": "node scripts/populateDatabase.js dry-run"
+    "dry-run": "node scripts/populateDatabase.js dry-run",
+    "setup-categories": "node scripts/setupCategories.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.55.0",
