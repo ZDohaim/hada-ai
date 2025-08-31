@@ -98,18 +98,3 @@ export const getEnrichedGiftSuggestions = async (preferences) => {
     );
   }
 };
-/**
- * Search for products directly on NiceOne API
- * @param {string} query - Search query
- * @param {Object} options - Additional search options
- * @returns {Promise<Array>} - Search results
- */
-export const searchNiceOneProducts = async (query, options = {}) => {
-  try {
-    await initializeApi();
-    return await searchProducts(query, options);
-  } catch (error) {
-    console.error("Error searching NiceOne products:", error);
-    throw error;
-  }
-};

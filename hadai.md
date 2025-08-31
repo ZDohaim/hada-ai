@@ -78,13 +78,36 @@ npm start
 
 ### Main Endpoints
 
-- `POST /api/generate-gift` - Generate gift suggestions with product enrichment
-- `GET /api/niceone/search` - Search NiceOne products
-- `POST /api/floward/search` - Search Floward (Algolia) with recipient/occasion/category filters
+- `POST /api/generate-gift` - Generate gift suggestions with database enrichment
+- `POST /api/gifts/search` - **Primary Database Search** - Bilingual product search with advanced filtering
 - `GET /api/version-check` - System status check
 
-### Store-Specific Endpoints
+### Database Search Endpoint
 
+`POST /api/gifts/search` - Body params:
+```json
+{
+  "preferences": {
+    "age": "25",
+    "gender": "female",
+    "relationship": "friend",
+    "interests": "makeup",
+    "occasion": "birthday",
+    "category": "makeup"
+  },
+  "filters": {
+    "stores": ["niceone", "jarir", "floward"],
+    "priceRange": { "min": 100, "max": 500 },
+    "categories": ["makeup"]
+  },
+  "limit": 20
+}
+```
+
+### Legacy Store-Specific Endpoints (Fallback)
+
+- `GET /api/niceone/search` - Search NiceOne products (legacy)
+- `GET /api/jarir/search` - Search Jarir products (legacy)
 - `GET /api/niceone/test` - Test NiceOne connection
 - `GET /api/niceone/check-connection` - Connection health check
 

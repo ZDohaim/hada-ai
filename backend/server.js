@@ -4,7 +4,7 @@ const cors = require("cors");
 const { OpenAI } = require("openai");
 const axios = require("axios");
 const crypto = require("crypto");
-const { searchGifts } = require("./services/supabaseService");
+const { searchGifts, searchGiftsWithPlans } = require("./services/supabaseService");
 
 const app = express();
 app.use(cors());
@@ -741,7 +741,7 @@ app.post("/api/generate-gift", async (req, res) => {
 Rules:
 1. Obey the user's stated preferences only. Do not invent constraints.
 2. Return strictly valid JSON matching the schema below. No prose.
-3. Produce 6–8 distinct recommendations when possible, balancing across stores and categories that fit the user signals.
+3. Produce 10–12 distinct recommendations when possible, ensuring variety across ALL stores (FLOWARD, JARIR, NICEONE) and categories.
 4. Route stores based on normalized signals:
 
    Budget bands (SAR):
@@ -764,27 +764,50 @@ Rules:
    - NICEONE: prefer "most_popular" results.
    - FLOWARD: prefer items with higher price tiers and presence of luxury keywords in the search context: premium, luxury, elegant, bouquet, roses, arrangement, exclusive.
 
-6. Categories whitelist:
-   Use only: Makeup, Perfume, Care, Health & Nutrition, Devices, Premium, Nails, Gifts, Lenses, Home Scents, Food & Drink.
-   Map flowers/arrangements under "Gifts".
+6. Categories whitelist (16 categories):
+   Use only: gifts, perfume, devices, home_scents, makeup, care, premium, nails, lenses, fashion, fitness, books, gaming, home_decor, electronics, office.
+   Map flowers/arrangements under "gifts".
 
-7. Search contexts:
-   Provide 3–6 precise keywords per item. Include store-specific quality indicators when relevant:
-   - FLOWARD: premium, luxury, bouquet, roses, arrangement, elegant, exclusive
-   - JARIR: bestseller, trending, latest, professional, advanced
-   - NICEONE: affordable, popular, trendy, long-lasting, everyday
+7. Multi-store recommendations with 16 categories:
+   - FLOWARD specializes in: gifts, premium, perfume, fashion
+   - JARIR specializes in: books, electronics, devices, office, gaming  
+   - NICEONE specializes in: makeup, care, nails, lenses, home_scents, fitness
+   - IMPORTANT: Search across ALL stores for each category - don't limit to single store
+   - Encourage variety by including products from multiple stores in results
 
-8. Conditional preference for FLOWARD:
-   If budget is High OR occasion/relationship implies romantic/formal/close AND the user's category or description does not exclude gifts/flowers, include at least one FLOWARD "Gifts" recommendation. Do not force FLOWARD when budget is Low or when user category clearly excludes gifts/flowers.
+8. Bilingual tokenization requirements:
+   - query_en: 3–6 English product tokens, no stopwords, concrete product terms only
+   - query_ar: 3–6 Arabic product tokens, culturally relevant Saudi market terms
+   - Strip generic words like "best", "good", "nice" - keep specific product types
+   - Include store-specific quality indicators:
+     * FLOWARD: premium, luxury, bouquet, roses, arrangement, elegant, exclusive
+     * JARIR: bestseller, trending, latest, professional, advanced
+     * NICEONE: affordable, popular, trendy, long-lasting, everyday
 
-9. Output schema:
+9. Multi-store variety requirement:
+   - Include recommendations from ALL THREE STORES when possible
+   - Don't restrict plans to single stores - let database find best products across stores
+   - If same product exists in multiple stores, include both options
+   - Ensure store diversity across the 10-12 recommendations
+
+10. Enhanced output schema:
 {
   "gifts": [
     {
-      "category": "<one of the allowed categories>",
-      "store": "<JARIR|NICEONE|FLOWARD>",
-      "search_context": "<3-6 keywords>",
-      "modifier": "<short human label>"
+      "category": "<one of the 16 allowed categories>",
+      "store": "ALL",
+      "preferred_stores": ["FLOWARD", "JARIR", "NICEONE"],
+      "query_en": "<3-6 English product tokens>",
+      "query_ar": "<3-6 Arabic product tokens>", 
+      "facets": {
+        "budget_band": "<Low|Mid|High>",
+        "min_price": <number>,
+        "max_price": <number>,
+        "relationship_tier": "<close|professional|casual>",
+        "occasion_tier": "<romantic_formal|practical|casual>"
+      },
+      "rationale": "<why this recommendation fits the user>",
+      "confidence": <0.0-1.0>
     }
   ]
 }`,
@@ -805,7 +828,7 @@ Rules:
       const chat = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [sys, usr],
-        temperature: 0.3, // Reduced temperature for more consistent results
+        temperature: 0.5, // Increased temperature for more creative multi-store variety
         max_tokens: 2000,
         response_format: { type: "json_object" },
       });
@@ -898,166 +921,55 @@ Rules:
 
     if (!prefs.enrichWithProducts) return res.json({ gifts });
 
-    // Throttled product enrichment - no fallbacks, strict intent adherence
-    const enriched = await Promise.all(
-      gifts.map((g, index) =>
-        limit(async () => {
-          const storeNormalized = (g.store || '').trim().toLowerCase();
-          let query = g.search_context || g.modifier || g.category;
-          
-          // Apply FLOWARD keyword boost if needed
-          if (storeNormalized === 'floward') {
-            query = boostFlowardSearch(query);
-          }
+    // NEW: Use advanced GPT→DB pipeline with bilingual search
+    console.log("🚀 Using new GPT→Database pipeline for product enrichment...");
+    
+    try {
+      const enriched = await searchGiftsWithPlans(gifts);
+      
+      console.log(
+        `📊 Advanced Pipeline Results: ${enriched.gifts.length} plans processed, ` +
+        `${enriched.search_metadata.total_products_found} products found, ` +
+        `${enriched.search_metadata.avg_products_per_plan.toFixed(1)} avg per plan`
+      );
+      
+      console.log(
+        `🏪 Stores covered: ${enriched.search_metadata.stores_covered.join(', ')}`
+      );
+      
+      console.log(
+        `📁 Categories covered: ${enriched.search_metadata.categories_covered.join(', ')}`
+      );
 
-          console.log(
-            `🔍 Processing gift ${index}: store="${storeNormalized}", query="${query}"`
-          );
+      res.json({ 
+        gifts: enriched.gifts,
+        search_metadata: enriched.search_metadata
+      });
 
-          try {
-            if (storeNormalized === "niceone") {
-              const params = {
-                route: "rest/product_admin/products",
-                search: query,
-                sort: "most_popular",
-                page: 1,
-                limit: 30,
-                first: false,
-              };
+    } catch (dbError) {
+      console.error("❌ Database pipeline failed, falling back to basic response:", dbError.message);
+      
+      // Fallback: return GPT suggestions without database enrichment
+      const fallbackGifts = gifts.map((g, index) => ({
+        ...g,
+        products: [],
+        product: null,
+        enrichmentError: true,
+        errorMessage: "Database search temporarily unavailable. Showing GPT suggestions only.",
+        recommendation_id: `fallback_${index}`,
+        source: g.store?.toLowerCase()
+      }));
 
-              const response = await niceoneApi.get("/", {
-                params: pruneEmpty(params),
-                headers: getNiceOneHeaders(),
-              });
-
-              const products = extractProducts(response);
-              const normalizedProducts = products.map((p) =>
-                normalizeProduct(p, "niceone")
-              );
-
-              // Validate that we only have NiceOne products
-              const validNiceOneProducts = normalizedProducts.filter(p => p.source === "niceone");
-              
-              if (validNiceOneProducts.length === 0 && normalizedProducts.length > 0) {
-                console.warn(`⚠️ NiceOne API returned non-NiceOne products for query: "${query}"`);
-              }
-
-              console.log(
-                `🛍️ NiceOne found ${validNiceOneProducts.length} valid products for "${query}"`
-              );
-
-              return {
-                ...g,
-                products: validNiceOneProducts.slice(0, 30),
-                product: validNiceOneProducts[0] || null,
-                source: "niceone",
-                searchQuery: query,
-                recommendation_id: `niceone_${index}`,
-                ...(validNiceOneProducts.length === 0 && {
-                  errorMessage: `No NiceOne products found for "${query}". Please try again with more refined search terms.`
-                })
-              };
-            } else if (storeNormalized === "jarir") {
-              // No fallback queries - use exact search context only
-              const products = await searchJarir(query);
-
-              // Validate that we only have Jarir products
-              const validJarirProducts = products.filter(p => p.source === "jarir");
-              
-              if (validJarirProducts.length === 0 && products.length > 0) {
-                console.warn(`⚠️ Jarir API returned non-Jarir products for query: "${query}"`);
-              }
-
-              return {
-                ...g,
-                products: validJarirProducts.slice(0, 30),
-                product: validJarirProducts[0] || null,
-                source: "jarir",
-                searchQuery: query,
-                recommendation_id: `jarir_${index}`,
-                ...(validJarirProducts.length === 0 && {
-                  errorMessage: `No Jarir products found for "${query}". Please try again with more refined search terms.`
-                })
-              };
-            } else if (storeNormalized === "floward") {
-              const params = {
-                query: query, // Use boosted query
-                recipient: g.recipient ? [g.recipient].flat() : [],
-                occasion: g.occasion ? [g.occasion].flat() : [],
-                category: g.category ? [g.category].flat() : [],
-                brand: g.brand ? [g.brand].flat() : [],
-                color: g.color ? [g.color].flat() : [],
-                minPrice: signals.minPrice ?? undefined,
-                maxPrice: signals.maxPrice ?? undefined,
-                mustBeInStock: true,
-                allowPreorder: true,
-                hitsPerPage: 30,
-                page: 0,
-              };
-
-              const products = await searchFloward(params);
-
-              // Validate that we only have FLOWARD products
-              const validFlowardProducts = products.filter(p => p.source === "floward");
-              
-              if (validFlowardProducts.length === 0 && products.length > 0) {
-                console.warn(`⚠️ FLOWARD API returned non-FLOWARD products for query: "${params.query}"`);
-              }
-
-              return {
-                ...g,
-                products: validFlowardProducts.slice(0, 30),
-                product: validFlowardProducts[0] || null,
-                source: "floward",
-                searchQuery: params.query,
-                recommendation_id: `floward_${index}`,
-                ...(validFlowardProducts.length === 0 && {
-                  errorMessage: `No FLOWARD products found for "${params.query}". Please try again with more refined search terms.`
-                })
-              };
-            } else {
-              console.log(
-                `⚠️ Unknown store "${storeNormalized}" - returning empty products for query: "${query}"`
-              );
-              return {
-                ...g,
-                products: [],
-                product: null,
-                source: storeNormalized,
-                searchQuery: query,
-                recommendation_id: `unknown_${index}`,
-                error: `Unknown store: ${storeNormalized}`,
-              };
-            }
-          } catch (err) {
-            console.error(
-              `❌ Error enriching gift (${storeNormalized}) ${query}:`,
-              err.message
-            );
-            return {
-              ...g,
-              products: [],
-              product: null,
-              source: storeNormalized,
-              searchQuery: query,
-              recommendation_id: `error_${index}`,
-              enrichmentError: true,
-              errorMessage: `Unable to search ${storeNormalized.toUpperCase()} for "${query}". Please try again with more refined search terms.`,
-            };
-          }
-        })
-      )
-    );
-
-    // Log enrichment results
-    const successCount = enriched.filter(
-      (g) => g.product || (g.products && g.products.length > 0)
-    ).length;
-    console.log(
-      `📊 Enrichment Results: ${successCount}/${enriched.length} recommendations have products`
-    );
-
-    res.json({ gifts: enriched });
+      res.json({ 
+        gifts: fallbackGifts,
+        search_metadata: {
+          fallback_mode: true,
+          error: dbError.message,
+          plans_processed: gifts.length,
+          total_products_found: 0
+        }
+      });
+    }
   } catch (err) {
     console.error("❌ /api/generate-gift error:", err.stack || err);
     res.status(500).json({
