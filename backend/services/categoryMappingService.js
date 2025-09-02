@@ -32,7 +32,7 @@ const STORE_CATEGORY_EXPERTISE = {
     secondary: ["fashion"]
   },
   "floward": {
-    primary: ["gifts", "fashion", "premium", "home_decor"],
+    primary: ["gifts", "fashion", "premium", "home_decor", "perfume"],
     secondary: []
   }
 };

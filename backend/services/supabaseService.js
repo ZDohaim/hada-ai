@@ -6,16 +6,29 @@ const supabase = createClient(
 );
 
 async function searchGiftsWithPlans(gptPlans) {
-  // Convert GPT plans to JSONB array format for Supabase with multi-store support
-  const plansArray = gptPlans.map(plan => ({
-    category: plan.category,
-    store: plan.store === 'ALL' ? 'ALL' : (plan.store || 'ALL'), // Default to ALL stores
-    query_en: plan.query_en || plan.search_context || '',
-    query_ar: plan.query_ar || '',
-    facets: plan.facets || {},
-    rationale: plan.rationale || plan.modifier || '',
-    confidence: plan.confidence || 0.8
-  }));
+  // Convert GPT plans to JSONB array format for Supabase with flexible text search
+  const plansArray = gptPlans.map(plan => {
+    // Extract single keyword from complex queries for better matching
+    const extractKeyword = (query) => {
+      if (!query) return '';
+      // Extract the main product type from queries like "skincare set popular" -> "skincare"
+      const keywords = query.toLowerCase().split(' ');
+      const productKeywords = ['skincare', 'makeup', 'perfume', 'nail', 'book', 'watch', 'jewelry', 'fragrance', 'candle', 'home'];
+      const mainKeyword = keywords.find(word => productKeywords.some(pk => word.includes(pk))) || keywords[0] || '';
+      return mainKeyword;
+    };
+
+    return {
+      category: plan.category,
+      store: plan.store === 'ALL' ? 'ALL' : (plan.store || 'ALL'),
+      // Use simplified keywords for better matching, or empty string for category-only search
+      query_en: extractKeyword(plan.query_en) || '',
+      query_ar: '', // Disable Arabic search for now to simplify matching
+      facets: plan.facets || {},
+      rationale: plan.rationale || plan.modifier || '',
+      confidence: plan.confidence || 0.8
+    };
+  });
 
   console.log('🚀 Calling search_gifts_plans with:', JSON.stringify(plansArray, null, 2));
   
@@ -117,6 +130,8 @@ async function searchGifts(reqBody) {
       'electronics': 'electronics',
       'Makeup': 'makeup',
       'makeup': 'makeup',
+      'Beauty': 'makeup',  // Beauty maps to makeup
+      'beauty': 'makeup',
       'Perfume': 'perfume', 
       'perfume': 'perfume',
       'Care': 'care',

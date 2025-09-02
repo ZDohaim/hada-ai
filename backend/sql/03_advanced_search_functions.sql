@@ -211,15 +211,22 @@ BEGIN
         -- Multi-store search: search across ALL stores for maximum variety
         AND (true) -- Always include all stores
         
-        -- Text search filter (if queries provided)
+        -- Text search filter: flexible matching - if queries exist, try to match, but don't exclude category matches
         AND (
-            query_en = '' OR query_ar = '' OR
+            -- If no queries provided, include all category matches
+            (query_en = '' AND query_ar = '') OR
+            -- If queries provided, try flexible text matching
             p.name_en_tsvector @@ plainto_tsquery('english', query_en) OR
             p.name_ar_tsvector @@ plainto_tsquery('arabic', query_ar) OR
             p.description_en_tsvector @@ plainto_tsquery('english', query_en) OR  
             p.description_ar_tsvector @@ plainto_tsquery('arabic', query_ar) OR
-            p.name ILIKE '%' || query_en || '%' OR
-            p.tags && string_to_array(query_en || ' ' || query_ar, ' ')
+            -- Flexible partial matching for product names
+            p.name ILIKE '%' || split_part(query_en, ' ', 1) || '%' OR
+            p.name ILIKE '%' || split_part(query_en, ' ', 2) || '%' OR
+            -- Tag matching
+            p.tags && string_to_array(query_en || ' ' || query_ar, ' ') OR
+            -- If text search completely fails, still allow category matches (but with lower priority)
+            (c.code = planned_category AND length(query_en) > 0)
         )
     ORDER BY 
         -- Primary: relevance score with multi-store support (higher is better)

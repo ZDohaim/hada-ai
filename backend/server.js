@@ -733,6 +733,7 @@ app.post("/api/generate-gift", async (req, res) => {
     userPrompt += `\n- RelationshipTier: ${signals.relationshipTier}`;
     userPrompt += `\n- OccasionTier: ${signals.occasionTier}`;
     userPrompt += `\n- AllowsGiftsCategory: ${signals.allowsGiftsCategory}`;
+    userPrompt += `\n\nIMPORTANT: Generate AT LEAST 15 diverse recommendations. Prioritize VARIETY over perfection.`;
 
     const sys = {
       role: "system",
@@ -741,7 +742,8 @@ app.post("/api/generate-gift", async (req, res) => {
 Rules:
 1. Obey the user's stated preferences only. Do not invent constraints.
 2. Return strictly valid JSON matching the schema below. No prose.
-3. Produce 10–12 distinct recommendations when possible, ensuring variety across ALL stores (FLOWARD, JARIR, NICEONE) and categories.
+3. Produce 15–20 diverse recommendations to maximize gift exploration, ensuring comprehensive variety across ALL stores (FLOWARD, JARIR, NICEONE) and multiple categories.
+4. VARIETY MANDATE: Include multiple variations per category (different price points, product types, occasions), explore adjacent categories, and provide alternatives at different budget levels.
 4. Route stores based on normalized signals:
 
    Budget bands (SAR):
@@ -759,16 +761,22 @@ Rules:
    - Tech, books, office, gaming: JARIR
    - Makeup, skincare, lenses, affordable fragrances, nails, home scents: NICEONE
 
-5. Popularity heuristic:
+5. DIVERSITY REQUIREMENTS:
+   - Generate 3-4 recommendations per major category relevant to user's request
+   - Include price variations: budget-friendly, mid-range, and premium options within user's range
+   - Ensure representation from ALL THREE STORES for comprehensive shopping options
+   - Explore adjacent categories (Beauty → Fashion accessories, Home scents, Books about beauty)
+
+6. Popularity heuristic:
    - JARIR: prefer items tagged "Trending Now" or "Best Sellers".
    - NICEONE: prefer "most_popular" results.
    - FLOWARD: prefer items with higher price tiers and presence of luxury keywords in the search context: premium, luxury, elegant, bouquet, roses, arrangement, exclusive.
 
-6. Categories whitelist (16 categories):
+7. Categories whitelist (16 categories):
    Use only: gifts, perfume, devices, home_scents, makeup, care, premium, nails, lenses, fashion, fitness, books, gaming, home_decor, electronics, office.
    Map flowers/arrangements under "gifts".
 
-7. Multi-store recommendations with 16 categories:
+8. Multi-store recommendations with 16 categories:
    - FLOWARD specializes in: gifts, premium, perfume, fashion
    - JARIR specializes in: books, electronics, devices, office, gaming  
    - NICEONE specializes in: makeup, care, nails, lenses, home_scents, fitness
@@ -784,11 +792,17 @@ Rules:
      * JARIR: bestseller, trending, latest, professional, advanced
      * NICEONE: affordable, popular, trendy, long-lasting, everyday
 
-9. Multi-store variety requirement:
-   - Include recommendations from ALL THREE STORES when possible
-   - Don't restrict plans to single stores - let database find best products across stores
-   - If same product exists in multiple stores, include both options
-   - Ensure store diversity across the 10-12 recommendations
+9. EXPANDED VARIETY REQUIREMENTS:
+   - Include recommendations from ALL THREE STORES across the 15-20 suggestions
+   - Generate MULTIPLE variations per category:
+     * Different product types (makeup: brushes, palettes, lipsticks, sets)
+     * Different price points within user's budget range
+     * Different occasions/use cases (daily, special events, professional)
+   - Explore ADJACENT categories to maximize discovery:
+     * Beauty → Fashion accessories, Home scents, Self-care books
+     * Fashion → Beauty products, Premium gifts, Lifestyle items
+     * Tech → Books, Gaming, Office supplies
+   - Include "discovery" recommendations: thoughtful alternatives user might not expect
 
 10. Enhanced output schema:
 {
@@ -828,8 +842,8 @@ Rules:
       const chat = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [sys, usr],
-        temperature: 0.5, // Increased temperature for more creative multi-store variety
-        max_tokens: 2000,
+        temperature: 0.7, // Higher temperature for maximum creativity and variety
+        max_tokens: 3000, // Increased tokens for more recommendations
         response_format: { type: "json_object" },
       });
 
